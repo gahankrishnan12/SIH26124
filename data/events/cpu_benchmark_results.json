@@ -1,0 +1,22 @@
+{
+  "model_name": "yolov8n.pt",
+  "model_loading_time_sec": 0.0488,
+  "input_video_path": "C:\\Users\\Msc\\OneDrive\\G\\OneDrive\\SIH26124\\data\\sample\\real_road_sample.mp4",
+  "output_video_path": "C:\\Users\\Msc\\OneDrive\\G\\OneDrive\\SIH26124\\data\\sample\\annotated_real_road_sample.mp4",
+  "input_resolution": "768x432",
+  "input_video_fps": 12.0,
+  "total_video_frames": 647,
+  "frames_read_limit": 60,
+  "processed_frames_count": 60,
+  "skipped_frames_count": 0,
+  "frame_skip_interval": 1,
+  "total_inference_time_sec": 6.549,
+  "avg_inference_time_ms_per_frame": 109.16,
+  "model_inference_fps": 9.16,
+  "total_processing_time_sec": 6.87,
+  "complete_pipeline_fps": 8.73,
+  "class_counts": {
+    "person": 45
+  },
+  "total_detections_count": 45
+}

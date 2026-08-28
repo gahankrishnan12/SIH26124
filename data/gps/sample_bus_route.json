@@ -1,0 +1,77 @@
+{
+  "route_id": "ROUTE-7B-CENTRAL",
+  "route_name": "Ring Road - Transit Corridor Sector 4 to 12",
+  "is_simulated": true,
+  "waypoints": [
+    {
+      "index": 0,
+      "segment_name": "Sector 4 Junction",
+      "latitude": 28.6139,
+      "longitude": 77.209,
+      "speed_kmh": 32.5
+    },
+    {
+      "index": 1,
+      "segment_name": "Outer Ring Road North",
+      "latitude": 28.6155,
+      "longitude": 77.2115,
+      "speed_kmh": 38.0
+    },
+    {
+      "index": 2,
+      "segment_name": "Outer Ring Road Mid-1",
+      "latitude": 28.6178,
+      "longitude": 77.214,
+      "speed_kmh": 41.2
+    },
+    {
+      "index": 3,
+      "segment_name": "Metro Flyover Approach",
+      "latitude": 28.6202,
+      "longitude": 77.2172,
+      "speed_kmh": 25.4
+    },
+    {
+      "index": 4,
+      "segment_name": "Transit Station Gate 2",
+      "latitude": 28.623,
+      "longitude": 77.2205,
+      "speed_kmh": 18.0
+    },
+    {
+      "index": 5,
+      "segment_name": "Commercial District Ave",
+      "latitude": 28.6258,
+      "longitude": 77.2241,
+      "speed_kmh": 29.8
+    },
+    {
+      "index": 6,
+      "segment_name": "Underpass North Exit",
+      "latitude": 28.6285,
+      "longitude": 77.2278,
+      "speed_kmh": 35.0
+    },
+    {
+      "index": 7,
+      "segment_name": "Hospital Crossing Link",
+      "latitude": 28.631,
+      "longitude": 77.2312,
+      "speed_kmh": 22.1
+    },
+    {
+      "index": 8,
+      "segment_name": "University South Gate",
+      "latitude": 28.6342,
+      "longitude": 77.235,
+      "speed_kmh": 40.5
+    },
+    {
+      "index": 9,
+      "segment_name": "Sector 12 Terminal",
+      "latitude": 28.6375,
+      "longitude": 77.2392,
+      "speed_kmh": 15.0
+    }
+  ]
+}
