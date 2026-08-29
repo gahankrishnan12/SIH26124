@@ -355,5 +355,161 @@ class TestCheckpoint5Analytics(unittest.TestCase):
         self.assertIn("Observational proxy data only", transparency["disclaimer"])
 
 
+    def test_10_car_counted_as_vehicle(self):
+        """Verify car is recognized and counted as a vehicle."""
+        evt = UrbanEvent.create("VEHICLE", "car", 0.90, 28.61, 77.21, 1, [0, 0, 10, 10])
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(analytics.get_total_vehicle_count(), 1)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {"car": 1})
+
+    def test_11_motorcycle_counted_as_vehicle(self):
+        """Verify motorcycle is recognized and counted as a vehicle."""
+        evt = UrbanEvent.create("VEHICLE", "motorcycle", 0.85, 28.61, 77.21, 1, [0, 0, 10, 10])
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(analytics.get_total_vehicle_count(), 1)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {"motorcycle": 1})
+
+    def test_12_bus_counted_as_vehicle(self):
+        """Verify bus is recognized and counted as a vehicle."""
+        evt = UrbanEvent.create("VEHICLE", "bus", 0.92, 28.61, 77.21, 1, [0, 0, 10, 10])
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(analytics.get_total_vehicle_count(), 1)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {"bus": 1})
+
+    def test_13_truck_counted_as_vehicle(self):
+        """Verify truck is recognized and counted as a vehicle."""
+        evt = UrbanEvent.create("VEHICLE", "truck", 0.88, 28.61, 77.21, 1, [0, 0, 10, 10])
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(analytics.get_total_vehicle_count(), 1)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {"truck": 1})
+
+    def test_14_person_not_counted_as_vehicle(self):
+        """Verify person (pedestrian) with event_type='VEHICLE' is NOT counted as a vehicle."""
+        evt = UrbanEvent.create(
+            event_type="VEHICLE",
+            class_name="person",
+            confidence=0.95,
+            latitude=28.6139,
+            longitude=77.2090,
+            frame_index=15,
+            bbox=[100.0, 100.0, 150.0, 200.0],
+            detection_mode="REAL_AI"
+        )
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(len(analytics.all_events), 1)
+        self.assertEqual(analytics.get_total_vehicle_count(), 0)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {})
+        self.assertEqual(analytics.get_vehicle_events(), [])
+        
+        summary = analytics.get_summary()
+        self.assertEqual(summary["total_events_in_dataset"], 1)
+        self.assertEqual(summary["vehicle_events_analyzed"], 0)
+        self.assertEqual(summary["non_vehicle_events_excluded"], 1)
+        self.assertEqual(summary["vehicle_counts"]["total_vehicle_count"], 0)
+
+    def test_15_road_damage_not_counted_as_vehicle(self):
+        """Verify ROAD_DAMAGE / pothole is NOT counted as a vehicle."""
+        evt = UrbanEvent.create("ROAD_DAMAGE", "pothole", 0.90, 28.61, 77.21, 1, [0, 0, 10, 10], severity="high")
+        analytics = TrafficAnalytics(events=[evt])
+        self.assertEqual(analytics.get_total_vehicle_count(), 0)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {})
+
+    def test_16_mixed_vehicle_and_person_counts(self):
+        """Verify mixed dataset with cars, trucks, motorcycles, buses, and persons computes correct vehicle counts."""
+        events = [
+            UrbanEvent.create("VEHICLE", "car", 0.90, 28.61, 77.21, 1, [0, 0, 10, 10]),
+            UrbanEvent.create("VEHICLE", "truck", 0.85, 28.61, 77.21, 2, [0, 0, 10, 10]),
+            UrbanEvent.create("VEHICLE", "motorcycle", 0.80, 28.61, 77.21, 3, [0, 0, 10, 10]),
+            UrbanEvent.create("VEHICLE", "bus", 0.95, 28.61, 77.21, 4, [0, 0, 10, 10]),
+            UrbanEvent.create("VEHICLE", "person", 0.99, 28.61, 77.21, 5, [0, 0, 10, 10]),  # Non-vehicle
+            UrbanEvent.create("VEHICLE", "person", 0.75, 28.61, 77.21, 6, [0, 0, 10, 10]),  # Non-vehicle
+            UrbanEvent.create("ROAD_DAMAGE", "pothole", 0.88, 28.61, 77.21, 7, [0, 0, 10, 10]) # Non-vehicle
+        ]
+        analytics = TrafficAnalytics(events=events)
+        self.assertEqual(len(analytics.all_events), 7)
+        self.assertEqual(analytics.get_total_vehicle_count(), 4)
+        
+        counts = analytics.get_vehicle_counts_by_class()
+        self.assertEqual(counts, {"car": 1, "truck": 1, "motorcycle": 1, "bus": 1})
+        self.assertNotIn("person", counts)
+        self.assertNotIn("pothole", counts)
+
+        dist = analytics.get_vehicle_class_distribution()
+        self.assertEqual(dist["total_vehicle_events"], 4)
+        self.assertEqual(dist["percentages_by_class"]["car"], 25.0)
+        self.assertEqual(dist["percentages_by_class"]["truck"], 25.0)
+        self.assertEqual(dist["percentages_by_class"]["motorcycle"], 25.0)
+        self.assertEqual(dist["percentages_by_class"]["bus"], 25.0)
+
+    def test_17_density_rate_excludes_person_events(self):
+        """Verify traffic density rate calculation strictly excludes person records."""
+        # 1 real car at t=0 and 1 real car at t=60 (rate = 2.0 ev/min -> LOW)
+        # Plus 50 person events in between (which would incorrectly trigger CONGESTED if counted)
+        events = [
+            UrbanEvent.create("VEHICLE", "car", 0.9, 28.0, 77.0, 1, [0, 0, 10, 10], timestamp=self.base_time.isoformat()),
+            UrbanEvent.create("VEHICLE", "car", 0.9, 28.0, 77.0, 100, [0, 0, 10, 10], timestamp=(self.base_time + timedelta(seconds=60)).isoformat())
+        ]
+        for i in range(50):
+            events.append(UrbanEvent.create(
+                "VEHICLE", "person", 0.95, 28.0, 77.0, 10 + i, [0, 0, 10, 10],
+                timestamp=(self.base_time + timedelta(seconds=i + 1)).isoformat()
+            ))
+
+        analytics = TrafficAnalytics(events=events)
+        self.assertEqual(len(analytics.all_events), 52)
+        self.assertEqual(analytics.get_total_vehicle_count(), 2)
+
+        density = analytics.classify_traffic_density()
+        self.assertEqual(density["observed_events"], 2)
+        self.assertEqual(density["observed_rate_per_minute"], 2.0)
+        self.assertEqual(density["density_level"], "LOW")
+
+        temporal = analytics.get_vehicle_counts_over_time(interval_seconds=60)
+        self.assertEqual(temporal["total_events"], 2)
+        self.assertEqual(temporal["events_per_minute"], 2.0)
+
+    def test_18_source_statistics_exclude_person_events(self):
+        """Verify per-source vehicle statistics completely exclude person records."""
+        events = [
+            UrbanEvent.create("VEHICLE", "bus", 0.90, 28.61, 77.21, 1, [0, 0, 10, 10], source_id="BUS_01"),
+            UrbanEvent.create("VEHICLE", "car", 0.80, 28.62, 77.22, 2, [0, 0, 10, 10], source_id="BUS_01"),
+            UrbanEvent.create("VEHICLE", "person", 0.99, 28.63, 77.23, 3, [0, 0, 10, 10], source_id="BUS_01"),
+            UrbanEvent.create("ROAD_DAMAGE", "pothole", 0.85, 28.64, 77.24, 4, [0, 0, 10, 10], source_id="BUS_01")
+        ]
+        analytics = TrafficAnalytics(events=events)
+        stats = analytics.get_source_level_statistics()
+        
+        self.assertIn("BUS_01", stats)
+        s = stats["BUS_01"]
+        self.assertEqual(s["total_events_recorded"], 4)
+        self.assertEqual(s["total_vehicle_events"], 2) # only bus and car
+        self.assertEqual(s["vehicle_counts_by_class"], {"bus": 1, "car": 1})
+        self.assertNotIn("person", s["vehicle_counts_by_class"])
+        self.assertEqual(s["average_vehicle_confidence"], 0.85) # (0.90 + 0.80) / 2
+
+    def test_19_existing_analytics_preserved_for_valid_classes(self):
+        """Verify full summary calculation for valid vehicle classes is completely preserved."""
+        events = self._create_synthetic_events()
+        # Add 3 person events to synthetic set
+        for i in range(3):
+            events.append(UrbanEvent.create(
+                "VEHICLE", "person", 0.95, 28.61, 77.20, 100 + i, [0, 0, 10, 10],
+                timestamp=(self.base_time + timedelta(seconds=i * 5)).isoformat()
+            ))
+
+        analytics = TrafficAnalytics(events=events)
+        # 14 base events (10 vehicles + 4 potholes) + 3 persons = 17 total
+        self.assertEqual(len(analytics.all_events), 17)
+        self.assertEqual(analytics.get_total_vehicle_count(), 10)
+        self.assertEqual(analytics.get_vehicle_counts_by_class(), {"car": 5, "bus": 3, "motorcycle": 2})
+
+        summary = analytics.get_summary()
+        self.assertEqual(summary["total_events_in_dataset"], 17)
+        self.assertEqual(summary["vehicle_events_analyzed"], 10)
+        self.assertEqual(summary["road_damage_events_excluded"], 4)
+        self.assertEqual(summary["non_vehicle_events_excluded"], 7) # 4 potholes + 3 persons
+
+
 if __name__ == "__main__":
     unittest.main()
+
