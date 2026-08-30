@@ -1,9 +1,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-env/
-venv/
 .pytest_cache/
-.DS_Store
-*.tmp
+venv/
+.env
+.idea/
+.vscode/
+*.db-journal
+models/*.pt
+!models/.gitkeep
