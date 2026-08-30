@@ -10,6 +10,8 @@ from src.analytics.traffic_metrics import (
     compute_temporal_counts,
     classify_traffic_density,
     compute_source_statistics,
+    VALID_VEHICLE_CLASSES,
+    VEHICLE_CLASSES,
     DEFAULT_DENSITY_THRESHOLDS,
     DATA_DISCLAIMER,
     TRANSPARENT_METHODOLOGY_NOTE
@@ -23,6 +25,8 @@ __all__ = [
     "compute_temporal_counts",
     "classify_traffic_density",
     "compute_source_statistics",
+    "VALID_VEHICLE_CLASSES",
+    "VEHICLE_CLASSES",
     "DEFAULT_DENSITY_THRESHOLDS",
     "DATA_DISCLAIMER",
     "TRANSPARENT_METHODOLOGY_NOTE"

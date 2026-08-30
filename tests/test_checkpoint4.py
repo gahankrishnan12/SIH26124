@@ -107,10 +107,13 @@ class TestCheckpoint4(unittest.TestCase):
     def test_07_sqlite_initialization(self):
         """Verify SQLite database and events table exist."""
         self.assertTrue(self.test_db_path.exists())
-        with self.db.get_connection() as conn:
+        conn = self.db.get_connection()
+        try:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
             self.assertIsNotNone(cursor.fetchone())
+        finally:
+            conn.close()
 
     def test_08_event_insertion_and_retrieval(self):
         """Verify single and batch event insertion and retrieval."""

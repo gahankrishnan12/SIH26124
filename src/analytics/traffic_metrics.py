@@ -9,13 +9,22 @@ They serve as observational proxy indicators and do not claim to be scientifical
 or certified induction-loop/radar traffic measurements.
 """
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Union, Tuple, Set
 from collections import Counter
 import math
 
 from src.events.schema import UrbanEvent
 from src.storage.db_manager import DatabaseManager
 
+
+# Whitelist of valid vehicle classes for traffic analytics
+VALID_VEHICLE_CLASSES: Set[str] = {
+    "car",
+    "motorcycle",
+    "bus",
+    "truck"
+}
+VEHICLE_CLASSES = VALID_VEHICLE_CLASSES
 
 # Standard traffic density classification thresholds (events observed per minute)
 DEFAULT_DENSITY_THRESHOLDS = {
@@ -74,10 +83,12 @@ class TrafficAnalytics:
         self,
         events: Optional[List[Union[UrbanEvent, Dict[str, Any]]]] = None,
         db_manager: Optional[DatabaseManager] = None,
-        density_thresholds: Optional[Dict[str, float]] = None
+        density_thresholds: Optional[Dict[str, float]] = None,
+        valid_vehicle_classes: Optional[Set[str]] = None
     ):
         self.db_manager = db_manager
         self.density_thresholds = density_thresholds or DEFAULT_DENSITY_THRESHOLDS.copy()
+        self.valid_vehicle_classes = valid_vehicle_classes or VALID_VEHICLE_CLASSES.copy()
         self._raw_events: List[UrbanEvent] = []
         
         if events is not None:
@@ -115,12 +126,14 @@ class TrafficAnalytics:
         class_name: Optional[str] = None
     ) -> List[UrbanEvent]:
         """
-        Extract only VEHICLE events matching optional filter criteria.
-        Filters out non-vehicle records (such as ROAD_DAMAGE).
+        Extract only valid VEHICLE events matching optional filter criteria.
+        Filters out non-vehicle records (such as ROAD_DAMAGE or pedestrian/person records).
         """
         filtered = []
         for e in self._raw_events:
             if e.event_type.upper() != "VEHICLE":
+                continue
+            if e.class_name.lower() not in self.valid_vehicle_classes:
                 continue
             if source_id is not None and e.source_id != source_id:
                 continue
@@ -318,7 +331,7 @@ class TrafficAnalytics:
         Classify traffic density based on transparent observed detection rate (events per minute).
         
         Classification levels:
-        - "EMPTY": 0 events observed
+        - "EMPTY": 0 valid vehicle events observed
         - "LOW": 0 < rate < 5.0 events/min (or instantaneous single detections)
         - "MODERATE": 5.0 <= rate < 15.0 events/min
         - "HIGH": 15.0 <= rate < 30.0 events/min
@@ -400,9 +413,9 @@ class TrafficAnalytics:
 
         for src in sorted(sources):
             src_all_events = [e for e in self._raw_events if e.source_id == src]
-            src_veh_events = [e for e in src_all_events if e.event_type.upper() == "VEHICLE"]
+            src_veh_events = self.get_vehicle_events(source_id=src)
             
-            # Class counts
+            # Class counts (only valid vehicle classes)
             class_counts = Counter(e.class_name.lower() for e in src_veh_events)
             
             # Time range
@@ -436,7 +449,7 @@ class TrafficAnalytics:
             modes = Counter(e.detection_mode for e in src_all_events)
             gps_modes = Counter(e.gps_mode for e in src_all_events)
 
-            # Average confidence
+            # Average confidence of valid vehicles
             confidences = [e.confidence for e in src_veh_events]
             avg_conf = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
 
@@ -472,6 +485,7 @@ class TrafficAnalytics:
         total_raw = len(self._raw_events)
         veh_events = self.get_vehicle_events()
         road_damage_events = [e for e in self._raw_events if e.event_type.upper() == "ROAD_DAMAGE"]
+        non_vehicle_events_count = total_raw - len(veh_events)
 
         class_dist = self.get_vehicle_class_distribution()
         temporal = self.get_vehicle_counts_over_time(interval_seconds=temporal_interval_sec)
@@ -485,6 +499,7 @@ class TrafficAnalytics:
             "total_events_in_dataset": total_raw,
             "vehicle_events_analyzed": len(veh_events),
             "road_damage_events_excluded": len(road_damage_events),
+            "non_vehicle_events_excluded": non_vehicle_events_count,
             "vehicle_counts": {
                 "total_vehicle_count": len(veh_events),
                 "unique_detection_frames": self.get_unique_detection_frames_count(),
@@ -498,6 +513,7 @@ class TrafficAnalytics:
             "data_transparency": {
                 "detection_modes": dict(modes_breakdown),
                 "gps_mode": "SIMULATED",
+                "valid_vehicle_classes": sorted(list(self.valid_vehicle_classes)),
                 "is_scientifically_calibrated": False,
                 "methodology_note": TRANSPARENT_METHODOLOGY_NOTE,
                 "disclaimer": DATA_DISCLAIMER
