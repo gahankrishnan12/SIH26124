@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.env
+.idea/
+.vscode/
+*.db-journal
+models/*.pt
+!models/.gitkeep

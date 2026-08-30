@@ -16,17 +16,18 @@ from src.events.geo_tagger import GeoTagger
 from src.events.generator import EventGenerator
 from src.storage.db_manager import DatabaseManager
 from src.video.processor import VideoProcessor
+from src.maps.folium_map import create_event_map, render_folium_map
 from config import settings
 
 st.set_page_config(
-    page_title="Urban Intelligence Platform | Checkpoint 4",
+    page_title="Urban Intelligence Platform | Checkpoint 5",
     page_icon="🚌",
     layout="wide"
 )
 
 # Header Section
 st.title("🚌 AI-Powered Mobile Urban Intelligence Platform")
-st.caption("Smart India Hackathon 2026 — Problem Statement: SIH26124 | Checkpoint 4: Event Generation & SQLite Persistence")
+st.caption("Smart India Hackathon 2026 — Problem Statement: SIH26124 | Checkpoint 5: GIS & Interactive Map Visualization")
 st.markdown("---")
 
 # Cached Pipeline Initializations
@@ -204,9 +205,30 @@ if selected_video_path is not None:
         else:
             st.info("No events match the selected filter criteria.")
 
-        # Section 6: Data Export Actions
+        # Section 6: GIS & Interactive Map Visualization
         st.markdown("---")
-        st.subheader("6. Export Event Records")
+        st.subheader("6. Interactive GIS Transit Map (Simulated GPS)")
+        st.caption("📍 *Spatial Event Distribution along Transit Corridor Route-7B*. Coordinates are simulated for MVP demonstration. Click on any marker to inspect detailed event telemetry.")
+
+        map_opt_c1, map_opt_c2 = st.columns(2)
+        with map_opt_c1:
+            enable_clusters = st.checkbox("Enable Marker Clustering", value=False, help="Group proximate markers into interactive clusters")
+        with map_opt_c2:
+            show_corridor_line = st.checkbox("Show Simulated Transit Corridor (Route-7B)", value=True, help="Draw the simulated bus route polyline with start/end terminals")
+
+        if filtered_events:
+            event_map = create_event_map(
+                events=filtered_events,
+                enable_clustering=enable_clusters,
+                show_route=show_corridor_line
+            )
+            render_folium_map(event_map, height=540)
+        else:
+            st.info("No events available to display on the map.")
+
+        # Section 7: Data Export Actions
+        st.markdown("---")
+        st.subheader("7. Export Event Records")
         exp_col1, exp_col2, exp_col3 = st.columns([1, 1, 2])
 
         csv_export_path = db_manager.export_events_csv()
@@ -235,9 +257,9 @@ if selected_video_path is not None:
         with exp_col3:
             st.caption(f"💾 **SQLite Database**: `{db_manager.db_path}` | Events Table Synchronized")
 
-        # Section 7: Video Preview
+        # Section 8: Video Preview
         st.markdown("---")
-        st.subheader("7. Annotated Video Output Preview")
+        st.subheader("8. Annotated Video Output Preview")
         if output_save_path.exists() and output_save_path.stat().st_size > 0:
             st.video(str(output_save_path))
             st.caption(f"Annotated Video Saved: {output_save_path} ({round(output_save_path.stat().st_size / 1024, 1)} KB)")
@@ -246,4 +268,5 @@ else:
     st.warning("Please select a video input above.")
 
 st.markdown("---")
-st.caption("Checkpoint 4 verified: Raw AI detections transformed into structured UrbanEvent records with simulated GPS geotagging, prototype spatial-temporal deduplication, SQLite persistence, and CSV/JSON exports.")
+st.caption("Checkpoint 5 verified: GIS module integrated with Folium & streamlit-folium, displaying existing event data, road damage markers with severity classification, vehicle markers, telemetry popups, and simulated GPS disclosures.")
+
