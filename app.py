@@ -23,19 +23,16 @@ from src.analytics.traffic_metrics import (
     compute_traffic_metrics,
     VALID_VEHICLE_CLASSES
 )
+from src.analytics.road_health import (
+    RoadHealthAnalyzer,
+    PROTOTYPE_DISCLAIMER
+)
 from src.maps.map_generator import create_urban_map
 from config import settings
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Theme
 # -----------------------------------------------------------------------------
-from src.maps.folium_map import create_event_map, render_folium_map
-from src.analytics.traffic_metrics import (
-    TrafficAnalytics,
-    compute_traffic_metrics,
-    VALID_VEHICLE_CLASSES
-)
-from src.maps.map_generator import create_urban_map
 # Custom Styling for Clean Professional Look
 st.markdown("""
 <style>
@@ -77,9 +74,10 @@ def load_pipeline():
     dam_det = RoadDamageDetector(conf_threshold=0.30)
     db_mgr = DatabaseManager()
     geo_tag = GeoTagger()
-    return veh_det, dam_det, db_mgr, geo_tag
+    road_health = RoadHealthAnalyzer()
+    return veh_det, dam_det, db_mgr, geo_tag, road_health
 
-vehicle_detector, road_damage_detector, db_manager, geo_tagger = load_pipeline()
+vehicle_detector, road_damage_detector, db_manager, geo_tagger, road_health_analyzer = load_pipeline()
 
 
 # -----------------------------------------------------------------------------
@@ -93,7 +91,7 @@ with st.sidebar:
 
     st.subheader("⚙️ System Status")
     st.write(f"🟢 **Vehicle AI**: `{vehicle_detector.model_name}`")
-    
+
     # Mode toggle for Road Damage
     simulate_toggle = st.toggle("Force Demo AI Mode", value=False, help="Forces heuristic road damage simulation mode for testing.")
     road_damage_detector.force_demo_mode = simulate_toggle
@@ -105,7 +103,7 @@ with st.sidebar:
         st.write("🟠 **Damage AI**: `DEMO_SIMULATION` (Simulation Mode)")
 
     st.write("📍 **GPS Mode**: `SIMULATED GPS`")
-    
+
     db_stats = db_manager.get_event_statistics()
     st.write(f"💾 **SQLite Events**: `{db_stats['total_events']}` records")
     st.markdown("---")
@@ -173,9 +171,9 @@ tab_video, tab_traffic, tab_damage, tab_gis, tab_table, tab_export = st.tabs([
 # =============================================================================
 with tab_video:
     st.subheader("1. Ingest Road Video & Run Dual AI Pipeline")
-    
+
     col_v1, col_v2 = st.columns([1.5, 1])
-    
+
     with col_v1:
         input_mode = st.radio(
             "Select Video Feed Source",
@@ -248,7 +246,7 @@ with tab_video:
                 progress_callback=ui_progress
             )
             progress_bar.progress(100, text="Pipeline Execution Complete!")
-            
+
             st.success(f"✅ Successfully processed {results['processed_frames_count']} frames in {results['total_processing_time_sec']}s ({results['complete_pipeline_fps']} FPS). Generated {results['total_generated_events']} new deduplicated events.")
 
             # Performance Metrics Cards
@@ -314,7 +312,7 @@ with tab_traffic:
         st.write(f"• **Observation Duration**: `{temp_dist['duration_seconds']} seconds`")
         st.write(f"• **Rate per Hour**: `{temp_dist['events_per_hour']} events/hr`")
         st.write(f"• **Peak Bucket Count**: `{temp_dist['peak_count']} events`")
-        
+
         if temp_dist["time_buckets"]:
             df_time = pd.DataFrame([
                 {"Time Interval": b["timestamp"].split("T")[-1][:8], "Count": b["count"]}
@@ -353,6 +351,111 @@ with tab_damage:
         st.dataframe(df_modes, use_container_width=True, hide_index=True)
         st.caption("ℹ️ `REAL_AI`: Model inference via YOLO road damage weights. `DEMO_SIMULATION`: Heuristic simulation mode.")
 
+    st.markdown("---")
+    st.subheader("🛣️ Road Health & Maintenance Priority")
+
+    # Mandated Prototype Disclaimer
+    st.markdown(f"""
+    <div class="disclaimer-banner">
+        <b>⚠️ Decision-Support Disclaimer:</b><br/>
+        {PROTOTYPE_DISCLAIMER}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Process Relationship Notice
+    st.caption("📍 **Decision-Support Pipeline Flow**: Road Damage Events ➔ Spatial/Segment Aggregation ➔ Road Health Score (0–100) ➔ Maintenance Priority Tier")
+
+    # Fetch live events from SQLite
+    all_health_events = db_manager.get_events(limit=100000)
+
+    if not all_health_events:
+        st.info("ℹ️ No road events currently recorded in the SQLite database. Ingest and process a video feed in Tab 1 to compute Road Health & Maintenance Priority rankings.")
+    else:
+        # Filter to ensure valid vehicle events semantics (exclude person records from vehicle counts)
+        valid_health_events = [
+            e for e in all_health_events
+            if e.event_type == "ROAD_DAMAGE" or (e.event_type == "VEHICLE" and e.class_name.lower() in VALID_VEHICLE_CLASSES)
+        ]
+
+        # Execute decision-support heuristic analysis directly from live events
+        health_report = road_health_analyzer.analyze_events(valid_health_events)
+
+        # 1. Overall Network KPI Row
+        rh1, rh2, rh3, rh4, rh5 = st.columns(5)
+        with rh1:
+            st.metric("Overall Network Health", f"{health_report.overall_network_health:.1f} / 100")
+        with rh2:
+            st.metric("Analyzed Segments", health_report.total_segments)
+        with rh3:
+            st.metric("Critical Segments", health_report.critical_segments_count)
+        with rh4:
+            st.metric("High Priority Segments", health_report.high_priority_segments_count)
+        with rh5:
+            st.metric("Total Damage Events", health_report.total_damage_events)
+
+        # 2. Priority Distribution Overview
+        st.markdown("#### 🎯 Maintenance Priority Distribution")
+        dist_c1, dist_c2, dist_c3, dist_c4, dist_c5 = st.columns(5)
+        with dist_c1:
+            st.markdown(f"🔴 **CRITICAL**: `{health_report.critical_segments_count}`")
+        with dist_c2:
+            st.markdown(f"🟠 **HIGH**: `{health_report.high_priority_segments_count}`")
+        with dist_c3:
+            st.markdown(f"🟡 **MEDIUM**: `{health_report.medium_priority_segments_count}`")
+        with dist_c4:
+            st.markdown(f"🔵 **LOW**: `{health_report.low_priority_segments_count}`")
+        with dist_c5:
+            st.markdown(f"🟢 **NORMAL**: `{health_report.normal_segments_count}`")
+
+        # 3. Segment Priority Ranking Table
+        st.markdown("#### 📋 Segment Maintenance Priority Rankings")
+
+        # Priority Filter
+        filter_col, _ = st.columns([1.5, 2.5])
+        with filter_col:
+            selected_tier = st.selectbox(
+                "Filter by Priority Tier",
+                ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "NORMAL"],
+                index=0
+            )
+
+        # Build table rows from SegmentHealthSummary objects
+        segment_records = []
+        for s in health_report.segments:
+            if selected_tier != "ALL" and s.maintenance_priority.upper() != selected_tier:
+                continue
+
+            # Traffic exposure formatting with strict valid vehicle semantics
+            if s.traffic_exposure and s.traffic_exposure.get("is_measured") and s.traffic_exposure.get("vehicle_count", 0) > 0:
+                traffic_str = f"{s.traffic_exposure['vehicle_count']} veh ({s.traffic_exposure['exposure_level']})"
+            else:
+                traffic_str = "Not Measured"
+
+            # Severity breakdown string
+            sb = s.severity_breakdown
+            sev_str = f"L:{sb.get('low', 0)} M:{sb.get('medium', 0)} H:{sb.get('high', 0)}"
+
+            segment_records.append({
+                "Segment ID": s.segment_id,
+                "Segment Name": s.segment_name,
+                "Health Score": f"{s.health_score:.1f}",
+                "Priority Tier": s.maintenance_priority,
+                "Priority Score": f"{s.priority_score:.1f}",
+                "Damages": s.damage_count,
+                "Dominant Severity": s.dominant_severity.upper(),
+                "Severity (L/M/H)": sev_str,
+                "Recurrence": s.recurrence_count,
+                "Traffic Exposure": traffic_str,
+                "Length": f"{s.length_meters:.0f} m"
+            })
+
+        if segment_records:
+            df_segments = pd.DataFrame(segment_records)
+            st.dataframe(df_segments, use_container_width=True, hide_index=True)
+            st.caption(f"Displaying {len(segment_records)} segment records. Priority Score integrates damage severity penalty, spatial recurrence clustering, and observed traffic volume.")
+        else:
+            st.info(f"No segments match the priority filter '{selected_tier}'.")
+
 
 # =============================================================================
 # TAB 4: GIS SPATIAL MAP (SIMULATED GPS)
@@ -366,13 +469,13 @@ with tab_gis:
     """, unsafe_allow_html=True)
 
     all_stored_events = db_manager.get_events(limit=1000)
-    
+
     map_col1, map_col2 = st.columns([3, 1])
     with map_col2:
         st.markdown("**Map Display Filters**")
         show_vehicles_on_map = st.checkbox("Overlay Vehicle Detections", value=False)
         sev_filter_map = st.multiselect("Severity Filter", ["high", "medium", "low"], default=["high", "medium", "low"])
-        
+
         filtered_map_events = [
             e for e in all_stored_events
             if e.event_type.upper() == "ROAD_DAMAGE" and e.severity.lower() in sev_filter_map
@@ -482,6 +585,41 @@ with tab_export:
             mime="application/json",
             use_container_width=True
         )
+
+    st.markdown("---")
+    st.markdown("#### 🛣️ Road Health & Maintenance Priority Reports")
+
+    all_export_events = db_manager.get_events(limit=100000)
+    if all_export_events:
+        valid_export_events = [
+            e for e in all_export_events
+            if e.event_type == "ROAD_DAMAGE" or (e.event_type == "VEHICLE" and e.class_name.lower() in VALID_VEHICLE_CLASSES)
+        ]
+        export_health_report = road_health_analyzer.analyze_events(valid_export_events)
+        rh_json_path = road_health_analyzer.export_report_json(export_health_report)
+        rh_csv_path = road_health_analyzer.export_report_csv(export_health_report)
+
+        rh_c1, rh_c2 = st.columns(2)
+        with rh_c1:
+            with open(rh_json_path, "r", encoding="utf-8") as f:
+                st.download_button(
+                    label="📥 Download Road Health Report (JSON)",
+                    data=f.read(),
+                    file_name="road_health_report_sih26124.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+        with rh_c2:
+            with open(rh_csv_path, "r", encoding="utf-8") as f:
+                st.download_button(
+                    label="📥 Download Segment Health Matrix (CSV)",
+                    data=f.read(),
+                    file_name="road_health_segments_sih26124.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    else:
+        st.info("ℹ️ Road Health exports unavailable: No event records exist in the SQLite database. Ingest video data in Tab 1 to generate reports.")
 
     st.markdown("---")
     st.markdown("#### 📂 Storage System Information")
