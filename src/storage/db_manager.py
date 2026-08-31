@@ -44,13 +44,22 @@ class DatabaseManager:
                     detection_mode TEXT NOT NULL,
                     gps_mode TEXT NOT NULL,
                     frame_index INTEGER NOT NULL,
-                    bbox TEXT NOT NULL
+                    bbox TEXT NOT NULL,
+                    bus_id TEXT
                 )
             """)
+
+            # Non-destructive migration for existing tables created before bus_id addition
+            cursor.execute("PRAGMA table_info(events)")
+            existing_columns = [row[1] for row in cursor.fetchall()]
+            if "bus_id" not in existing_columns:
+                cursor.execute("ALTER TABLE events ADD COLUMN bus_id TEXT")
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_class ON events(class_name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_bus_id ON events(bus_id)")
             conn.commit()
         finally:
             conn.close()
@@ -64,8 +73,8 @@ class DatabaseManager:
                 INSERT OR REPLACE INTO events (
                     event_id, event_type, class_name, confidence, severity,
                     latitude, longitude, timestamp, source_id,
-                    detection_mode, gps_mode, frame_index, bbox
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    detection_mode, gps_mode, frame_index, bbox, bus_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.event_id,
                 event.event_type,
@@ -79,7 +88,8 @@ class DatabaseManager:
                 event.detection_mode,
                 event.gps_mode,
                 event.frame_index,
-                json.dumps(event.bbox)
+                json.dumps(event.bbox),
+                event.bus_id
             ))
             conn.commit()
             return True
@@ -107,7 +117,8 @@ class DatabaseManager:
                     e.detection_mode,
                     e.gps_mode,
                     e.frame_index,
-                    json.dumps(e.bbox)
+                    json.dumps(e.bbox),
+                    e.bus_id
                 )
                 for e in events
             ]
@@ -115,8 +126,8 @@ class DatabaseManager:
                 INSERT OR REPLACE INTO events (
                     event_id, event_type, class_name, confidence, severity,
                     latitude, longitude, timestamp, source_id,
-                    detection_mode, gps_mode, frame_index, bbox
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    detection_mode, gps_mode, frame_index, bbox, bus_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, rows)
             conn.commit()
             return len(rows)
@@ -140,9 +151,10 @@ class DatabaseManager:
         severity: Optional[str] = None,
         detection_mode: Optional[str] = None,
         class_name: Optional[str] = None,
+        bus_id: Optional[str] = None,
         limit: int = 500
     ) -> List[UrbanEvent]:
-        """Filter events by optional parameters."""
+        """Filter events by optional parameters, including specific bus_id or legacy/unknown events."""
         query = "SELECT * FROM events WHERE 1=1"
         params = []
 
@@ -158,6 +170,12 @@ class DatabaseManager:
         if class_name:
             query += " AND class_name = ?"
             params.append(class_name.lower())
+        if bus_id is not None:
+            if bus_id.strip().upper() in ("UNKNOWN", "LEGACY", "UNKNOWN / LEGACY SOURCE"):
+                query += " AND (bus_id IS NULL OR bus_id = '' OR bus_id = 'UNKNOWN')"
+            else:
+                query += " AND bus_id = ?"
+                params.append(bus_id.strip())
 
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
@@ -192,12 +210,16 @@ class DatabaseManager:
             cursor.execute("SELECT detection_mode, COUNT(*) FROM events GROUP BY detection_mode")
             by_mode = dict(cursor.fetchall())
 
+            cursor.execute("SELECT COALESCE(bus_id, 'UNKNOWN'), COUNT(*) FROM events GROUP BY bus_id")
+            by_bus = dict(cursor.fetchall())
+
             return {
                 "total_events": total_count,
                 "by_event_type": by_type,
                 "by_class": by_class,
                 "by_severity": by_severity,
                 "by_detection_mode": by_mode,
+                "by_bus_id": by_bus,
                 "gps_mode": "SIMULATED",
                 "db_path": str(self.db_path)
             }
@@ -213,7 +235,7 @@ class DatabaseManager:
         fieldnames = [
             "event_id", "timestamp", "event_type", "class_name", "confidence",
             "severity", "latitude", "longitude", "source_id", "detection_mode",
-            "gps_mode", "frame_index", "bbox"
+            "gps_mode", "frame_index", "bbox", "bus_id"
         ]
 
         with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -222,6 +244,8 @@ class DatabaseManager:
             for evt in events:
                 d = evt.to_dict()
                 d["bbox"] = json.dumps(d["bbox"])
+                if d.get("bus_id") is None:
+                    d["bus_id"] = "UNKNOWN"
                 writer.writerow(d)
 
         return str(out_path)
@@ -238,6 +262,7 @@ class DatabaseManager:
             json.dump(data, f, indent=2)
 
         return str(out_path)
+
 
     def clear_events(self) -> None:
         """Clear all records from events table."""

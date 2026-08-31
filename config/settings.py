@@ -34,3 +34,13 @@ SAMPLE_GPS_ROUTE_PATH = GPS_DATA_DIR / "sample_bus_route.json"
 # UI / Display Settings
 APP_TITLE = "Mobile Urban Intelligence Platform"
 APP_SUBTITLE = "AI-Powered Road Condition & Traffic Sensing Fleet (SIH26124)"
+
+# Fleet Bus Configuration
+from config.buses import (
+    get_available_bus_ids,
+    get_available_buses,
+    get_bus_info,
+    format_bus_display,
+    authenticate_bus,
+    UNKNOWN_BUS_LABEL
+)

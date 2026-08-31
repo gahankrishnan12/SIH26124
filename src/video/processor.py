@@ -43,6 +43,7 @@ class VideoProcessor:
         enable_damage_detection: bool = True,
         save_to_db: bool = True,
         source_id: str = "BUS_DEMO_01",
+        bus_id: Optional[str] = None,
         progress_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
         """
@@ -81,7 +82,7 @@ class VideoProcessor:
             (orig_width, orig_height)
         )
 
-        event_generator = EventGenerator(geo_tagger=self.geo_tagger, source_id=source_id)
+        event_generator = EventGenerator(geo_tagger=self.geo_tagger, source_id=source_id, bus_id=bus_id)
 
         frame_idx = 0
         processed_count = 0
@@ -229,6 +230,7 @@ class VideoProcessor:
             "total_vehicles_detected": total_vehicles,
             "damage_severity_counts": damage_severity_counts,
             "total_damages_detected": total_damages,
+            "bus_id": bus_id,
             "database_statistics": db_stats,
             "generated_events": [e.to_dict() for e in event_generator.all_generated_events]
         }

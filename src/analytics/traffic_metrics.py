@@ -123,7 +123,8 @@ class TrafficAnalytics:
         source_id: Optional[str] = None,
         min_confidence: Optional[float] = None,
         detection_mode: Optional[str] = None,
-        class_name: Optional[str] = None
+        class_name: Optional[str] = None,
+        bus_id: Optional[str] = None
     ) -> List[UrbanEvent]:
         """
         Extract only valid VEHICLE events matching optional filter criteria.
@@ -143,8 +144,15 @@ class TrafficAnalytics:
                 continue
             if class_name is not None and e.class_name.lower() != class_name.lower():
                 continue
+            if bus_id is not None:
+                if bus_id.strip().upper() in ("UNKNOWN", "LEGACY", "UNKNOWN / LEGACY SOURCE"):
+                    if e.bus_id is not None and e.bus_id.strip() != "" and e.bus_id.upper() != "UNKNOWN":
+                        continue
+                elif e.bus_id != bus_id:
+                    continue
             filtered.append(e)
         return filtered
+
 
     # -------------------------------------------------------------------------
     # 1. Vehicle Counts

@@ -18,13 +18,16 @@ class EventGenerator:
         self,
         geo_tagger: Optional[GeoTagger] = None,
         source_id: str = "BUS_DEMO_01",
+        bus_id: Optional[str] = None,
         dedup_window_frames: int = 15,
         dedup_spatial_threshold: float = 80.0 # Pixel distance threshold for centers
     ):
         self.geo_tagger = geo_tagger or GeoTagger()
         self.source_id = source_id
+        self.bus_id = bus_id
         self.dedup_window_frames = dedup_window_frames
         self.dedup_spatial_threshold = dedup_spatial_threshold
+
         
         # Tracking history for deduplication
         # List of active event records: [{"event": UrbanEvent, "last_seen_frame": int, "center": (cx, cy)}]
@@ -164,7 +167,8 @@ class EventGenerator:
                 timestamp=timestamp,
                 source_id=self.source_id,
                 detection_mode=detection_mode,
-                gps_mode="SIMULATED"
+                gps_mode="SIMULATED",
+                bus_id=self.bus_id
             )
             self.active_tracks.append({
                 "event": new_event,

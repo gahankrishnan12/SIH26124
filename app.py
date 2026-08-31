@@ -1,6 +1,6 @@
 """
 SIH26124: AI-Powered Mobile Urban Intelligence Platform
-Streamlit Smart-City Decision Support Dashboard — Checkpoint 6 Integration
+Streamlit Smart-City Decision Support Dashboard — Fleet Authentication & Bus Identity Integration
 """
 import time
 import tempfile
@@ -29,6 +29,14 @@ from src.analytics.road_health import (
 )
 from src.maps.map_generator import create_urban_map
 from config import settings
+from config.buses import (
+    get_available_bus_ids,
+    get_available_buses,
+    get_bus_info,
+    format_bus_display,
+    authenticate_bus,
+    UNKNOWN_BUS_LABEL
+)
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Theme
@@ -61,6 +69,15 @@ st.markdown("""
         font-size: 13px;
         color: #78350f;
     }
+    .auth-container {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 24px;
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,14 +98,97 @@ vehicle_detector, road_damage_detector, db_manager, geo_tagger, road_health_anal
 
 
 # -----------------------------------------------------------------------------
-# 3. Sidebar Controls & System Status
+# 3. Session State & Prototype Fleet Authentication Screen
 # -----------------------------------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "current_bus_id" not in st.session_state:
+    st.session_state["current_bus_id"] = None
+if "data_scope" not in st.session_state:
+    st.session_state["data_scope"] = "CURRENT BUS"
+
+
+# Render Login Screen if not authenticated
+if not st.session_state["authenticated"]:
+    st.markdown("<h1 style='text-align: center;'>SIH26124 Fleet Intelligence</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748b;'>AI-Powered Mobile Urban Sensing Platform</p>", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="warning-banner" style="text-align: center;">
+        <b>⚠️ Prototype Fleet Authentication</b><br/>
+        This is a hackathon prototype, NOT production authentication.
+    </div>
+    """, unsafe_allow_html=True)
+
+    auth_col1, auth_col2, auth_col3 = st.columns([1, 2, 1])
+    with auth_col2:
+        st.markdown("### 🚌 BUS AUTHENTICATION")
+        bus_ids = get_available_bus_ids()
+
+        with st.form("prototype_bus_login_form"):
+            selected_bus_id = st.selectbox(
+                "Bus ID:",
+                options=bus_ids,
+                format_func=lambda b_id: format_bus_display(b_id)
+            )
+            entered_pin = st.text_input("Access PIN:", type="password", placeholder="Enter prototype PIN")
+            login_btn = st.form_submit_button("LOGIN", type="primary", use_container_width=True)
+
+            if login_btn:
+                if authenticate_bus(selected_bus_id, entered_pin):
+                    st.session_state["authenticated"] = True
+                    st.session_state["current_bus_id"] = selected_bus_id
+                    st.session_state["data_scope"] = "CURRENT BUS"
+                    st.success(f"Authenticated as {selected_bus_id} successfully.")
+                    st.rerun()
+                else:
+                    st.error("Authentication failed: Invalid Bus ID or Access PIN. Please try again.")
+
+    st.stop()
+
+
+# -----------------------------------------------------------------------------
+# 4. Sidebar Controls & Active Bus Information
+# -----------------------------------------------------------------------------
+current_bus_id = st.session_state["current_bus_id"]
+current_bus_info = get_bus_info(current_bus_id)
+
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/bus.png", width=64)
     st.title("SIH26124 Fleet Hub")
     st.caption("AI-Powered Urban Transit Sensing")
     st.markdown("---")
 
+    # Active Bus Identity Card
+    st.subheader("🚌 Active Bus Identity")
+    if current_bus_info:
+        st.markdown(f"""
+        <div class="metric-card">
+            <b>{current_bus_info['bus_id']}</b> — {current_bus_info['display_name']}<br/>
+            <span style="font-size: 11px; color: #475569;">🛣️ <b>Route:</b> {current_bus_info['route']}</span><br/>
+            <span style="font-size: 11px; color: #16a34a; font-weight: bold;">🟢 Authenticated / Active</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.write(f"Bus ID: `{current_bus_id}`")
+
+    if st.button("🚪 Logout", use_container_width=True):
+        st.session_state["authenticated"] = False
+        st.session_state["current_bus_id"] = None
+        st.session_state["data_scope"] = "CURRENT BUS"
+        st.rerun()
+
+    st.markdown("---")
+    st.subheader("📡 Data Scope Concept")
+    scope_option = st.radio(
+        "Select Data Selection Scope",
+        ["CURRENT BUS", "FLEET VIEW"],
+        index=0 if st.session_state.get("data_scope") == "CURRENT BUS" else 1,
+        help="CURRENT BUS: Shows events captured by this authenticated vehicle. FLEET VIEW: Aggregates events across all vehicles in the fleet."
+    )
+    st.session_state["data_scope"] = scope_option
+
+    st.markdown("---")
     st.subheader("⚙️ System Status")
     st.write(f"🟢 **Vehicle AI**: `{vehicle_detector.model_name}`")
 
@@ -123,29 +223,37 @@ with st.sidebar:
 
 
 # -----------------------------------------------------------------------------
-# 4. Header & Top Transparency Disclosure
+# 5. Header & Top Transparency Disclosure
 # -----------------------------------------------------------------------------
 st.title("🚌 AI-Powered Mobile Urban Intelligence Platform")
 st.markdown("**Smart-City Decision Support Dashboard** — Smart India Hackathon (SIH26124)")
 
-# Prominent Transparency & Integrity Banner
-b1, b2, b3 = st.columns([1.5, 1.5, 1.2])
+# Prominent Transparency & Active Scope Indicators
+data_scope = st.session_state["data_scope"]
+b1, b2, b3, b4 = st.columns([1.2, 1.2, 1.1, 1.1])
 
 with b1:
-    if road_damage_detector.detection_mode == "REAL_AI":
-        st.success(f"🟢 **Damage Detection**: `REAL_AI` (`{road_damage_detector.model_name}`)")
-    else:
-        st.warning("🟠 **Damage Detection**: `DEMO_SIMULATION` Mode")
+    st.info(f"🚌 **Active Bus**: `{current_bus_id}`")
 
 with b2:
-    st.info("📍 **GPS Telemetry**: `SIMULATED GPS` (Transit Corridor Route-7B)")
+    if data_scope == "CURRENT BUS":
+        st.success(f"🎯 **Scope**: `CURRENT BUS ({current_bus_id})`")
+    else:
+        st.warning("🌐 **Scope**: `FLEET VIEW (All Buses)`")
 
 with b3:
-    st.success(f"🚗 **Vehicle AI**: `REAL_AI` (`{vehicle_detector.model_name}`)")
+    if road_damage_detector.detection_mode == "REAL_AI":
+        st.success(f"🟢 **Damage AI**: `REAL_AI`")
+    else:
+        st.warning("🟠 **Damage AI**: `DEMO_SIMULATION`")
+
+with b4:
+    st.info("📍 **GPS**: `SIMULATED GPS`")
 
 st.markdown("""
 <div class="disclaimer-banner">
     <b>ℹ️ Data Transparency & Methodology Notice:</b><br/>
+    • <b>Bus Identity:</b> Events generated by this session are tagged with the active authenticated bus identity.<br/>
     • <b>GPS Telemetry:</b> Coordinates are interpolated along a predefined simulated transit corridor (Route-7B, New Delhi).<br/>
     • <b>Traffic Analytics:</b> Represents vehicle detection events captured by mobile transit edge cameras and deduplicated via spatial-temporal tracking. Observational proxy data only; not induction-loop calibrated.<br/>
     • <b>Traffic Density:</b> Heuristic classification based on observed detection rates (events/min).
@@ -154,7 +262,7 @@ st.markdown("""
 
 
 # -----------------------------------------------------------------------------
-# 5. Tabbed Interface for Clean Organization
+# 6. Tabbed Interface for Clean Organization
 # -----------------------------------------------------------------------------
 tab_video, tab_traffic, tab_damage, tab_gis, tab_table, tab_export = st.tabs([
     "📹 Video Ingestion & Processing",
@@ -171,6 +279,7 @@ tab_video, tab_traffic, tab_damage, tab_gis, tab_table, tab_export = st.tabs([
 # =============================================================================
 with tab_video:
     st.subheader("1. Ingest Road Video & Run Dual AI Pipeline")
+    st.caption(f"Newly processed events will be tagged with active bus ID: **{current_bus_id}**")
 
     col_v1, col_v2 = st.columns([1.5, 1])
 
@@ -243,11 +352,12 @@ with tab_video:
                 frame_skip=frame_skip,
                 max_frames=max_frames_val,
                 save_to_db=True,
+                bus_id=current_bus_id,
                 progress_callback=ui_progress
             )
             progress_bar.progress(100, text="Pipeline Execution Complete!")
 
-            st.success(f"✅ Successfully processed {results['processed_frames_count']} frames in {results['total_processing_time_sec']}s ({results['complete_pipeline_fps']} FPS). Generated {results['total_generated_events']} new deduplicated events.")
+            st.success(f"✅ Successfully processed {results['processed_frames_count']} frames in {results['total_processing_time_sec']}s ({results['complete_pipeline_fps']} FPS). Generated {results['total_generated_events']} new deduplicated events tagged to bus **{current_bus_id}**.")
 
             # Performance Metrics Cards
             m1, m2, m3, m4 = st.columns(4)
@@ -271,10 +381,16 @@ with tab_video:
 # TAB 2: TRAFFIC ANALYTICS (CHECKPOINT 5)
 # =============================================================================
 with tab_traffic:
-    st.subheader("2. Traffic Volume & Density Analytics (Checkpoint 5)")
+    st.subheader("2. Traffic Volume & Density Analytics")
+    if data_scope == "CURRENT BUS":
+        st.caption(f"📊 Displaying traffic analytics filtered to **Current Bus ({current_bus_id})**")
+        traffic_events = db_manager.filter_events(bus_id=current_bus_id, limit=100000)
+    else:
+        st.caption("🌐 Displaying aggregate fleet-wide traffic analytics (**Fleet View**)")
+        traffic_events = db_manager.get_events(limit=100000)
 
-    # Fetch live traffic summary from database
-    traffic_summary = compute_traffic_metrics(db_manager=db_manager)
+    # Fetch traffic summary based on active scope
+    traffic_summary = compute_traffic_metrics(events=traffic_events)
     veh_counts = traffic_summary["vehicle_counts"]
     temp_dist = traffic_summary["temporal_distribution"]
     density_info = traffic_summary["traffic_density_classification"]
@@ -306,7 +422,6 @@ with tab_traffic:
         else:
             st.info("No valid vehicle events detected in current dataset.")
 
-
     with tc2:
         st.markdown("#### ⏱️ Temporal Event Distribution")
         st.write(f"• **Observation Duration**: `{temp_dist['duration_seconds']} seconds`")
@@ -329,24 +444,37 @@ with tab_traffic:
 with tab_damage:
     st.subheader("3. Road Surface Condition & Damage Analytics")
 
-    db_stats = db_manager.get_event_statistics()
-    dam_events = db_manager.filter_events(event_type="ROAD_DAMAGE", limit=1000)
-
+    if data_scope == "CURRENT BUS":
+        st.caption(f"⚠️ Displaying road damage analytics for **Current Bus ({current_bus_id})**")
+        dam_events_scope = db_manager.filter_events(event_type="ROAD_DAMAGE", bus_id=current_bus_id, limit=100000)
+        all_health_events_scope = db_manager.filter_events(bus_id=current_bus_id, limit=100000)
+    else:
+        st.caption("🌐 Displaying aggregate fleet-wide road damage analytics (**Fleet View**)")
+        dam_events_scope = db_manager.filter_events(event_type="ROAD_DAMAGE", limit=100000)
+        all_health_events_scope = db_manager.get_events(limit=100000)
 
     dc1, dc2 = st.columns(2)
     with dc1:
         st.markdown("#### 📊 Damage Severity Breakdown")
-        sev_counts = db_stats["by_severity"]
-        # Filter out 'none' if present
-        filtered_sev = {k.capitalize(): v for k, v in sev_counts.items() if k != "none" and v > 0}
+        sev_counts = {"low": 0, "medium": 0, "high": 0}
+        for e in dam_events_scope:
+            s = e.severity.lower()
+            if s in sev_counts:
+                sev_counts[s] += 1
+
+        filtered_sev = {k.capitalize(): v for k, v in sev_counts.items() if v > 0}
         if filtered_sev:
             st.bar_chart(pd.DataFrame(list(filtered_sev.items()), columns=["Severity", "Count"]).set_index("Severity"))
         else:
-            st.info("No road damage records currently stored.")
+            st.info("No road damage records currently stored for this scope.")
 
     with dc2:
         st.markdown("#### 🤖 Damage AI Detection Modes")
-        mode_counts = db_stats["by_detection_mode"]
+        mode_counts = {}
+        for e in dam_events_scope:
+            m = e.detection_mode
+            mode_counts[m] = mode_counts.get(m, 0) + 1
+
         df_modes = pd.DataFrame([{"Detection Mode": k, "Events": v} for k, v in mode_counts.items()])
         st.dataframe(df_modes, use_container_width=True, hide_index=True)
         st.caption("ℹ️ `REAL_AI`: Model inference via YOLO road damage weights. `DEMO_SIMULATION`: Heuristic simulation mode.")
@@ -362,28 +490,23 @@ with tab_damage:
     </div>
     """, unsafe_allow_html=True)
 
-    # Process Relationship Notice
     st.caption("📍 **Decision-Support Pipeline Flow**: Road Damage Events ➔ Spatial/Segment Aggregation ➔ Road Health Score (0–100) ➔ Maintenance Priority Tier")
 
-    # Fetch live events from SQLite
-    all_health_events = db_manager.get_events(limit=100000)
-
-    if not all_health_events:
-        st.info("ℹ️ No road events currently recorded in the SQLite database. Ingest and process a video feed in Tab 1 to compute Road Health & Maintenance Priority rankings.")
+    if not all_health_events_scope:
+        st.info("ℹ️ No road events currently recorded in this scope. Ingest and process a video feed in Tab 1 to compute Road Health & Maintenance Priority rankings.")
     else:
-        # Filter to ensure valid vehicle events semantics (exclude person records from vehicle counts)
+        # Filter to ensure valid vehicle events semantics
         valid_health_events = [
-            e for e in all_health_events
+            e for e in all_health_events_scope
             if e.event_type == "ROAD_DAMAGE" or (e.event_type == "VEHICLE" and e.class_name.lower() in VALID_VEHICLE_CLASSES)
         ]
 
-        # Execute decision-support heuristic analysis directly from live events
         health_report = road_health_analyzer.analyze_events(valid_health_events)
 
         # 1. Overall Network KPI Row
         rh1, rh2, rh3, rh4, rh5 = st.columns(5)
         with rh1:
-            st.metric("Overall Network Health", f"{health_report.overall_network_health:.1f} / 100")
+            st.metric("Overall Health", f"{health_report.overall_network_health:.1f} / 100")
         with rh2:
             st.metric("Analyzed Segments", health_report.total_segments)
         with rh3:
@@ -410,7 +533,6 @@ with tab_damage:
         # 3. Segment Priority Ranking Table
         st.markdown("#### 📋 Segment Maintenance Priority Rankings")
 
-        # Priority Filter
         filter_col, _ = st.columns([1.5, 2.5])
         with filter_col:
             selected_tier = st.selectbox(
@@ -419,19 +541,16 @@ with tab_damage:
                 index=0
             )
 
-        # Build table rows from SegmentHealthSummary objects
         segment_records = []
         for s in health_report.segments:
             if selected_tier != "ALL" and s.maintenance_priority.upper() != selected_tier:
                 continue
 
-            # Traffic exposure formatting with strict valid vehicle semantics
             if s.traffic_exposure and s.traffic_exposure.get("is_measured") and s.traffic_exposure.get("vehicle_count", 0) > 0:
                 traffic_str = f"{s.traffic_exposure['vehicle_count']} veh ({s.traffic_exposure['exposure_level']})"
             else:
                 traffic_str = "Not Measured"
 
-            # Severity breakdown string
             sb = s.severity_breakdown
             sev_str = f"L:{sb.get('low', 0)} M:{sb.get('medium', 0)} H:{sb.get('high', 0)}"
 
@@ -452,7 +571,7 @@ with tab_damage:
         if segment_records:
             df_segments = pd.DataFrame(segment_records)
             st.dataframe(df_segments, use_container_width=True, hide_index=True)
-            st.caption(f"Displaying {len(segment_records)} segment records. Priority Score integrates damage severity penalty, spatial recurrence clustering, and observed traffic volume.")
+            st.caption(f"Displaying {len(segment_records)} segment records.")
         else:
             st.info(f"No segments match the priority filter '{selected_tier}'.")
 
@@ -468,7 +587,10 @@ with tab_gis:
     </div>
     """, unsafe_allow_html=True)
 
-    all_stored_events = db_manager.get_events(limit=1000)
+    if data_scope == "CURRENT BUS":
+        all_stored_events = db_manager.filter_events(bus_id=current_bus_id, limit=1000)
+    else:
+        all_stored_events = db_manager.get_events(limit=1000)
 
     map_col1, map_col2 = st.columns([3, 1])
     with map_col2:
@@ -483,7 +605,7 @@ with tab_gis:
         if show_vehicles_on_map:
             filtered_map_events += [e for e in all_stored_events if e.event_type.upper() == "VEHICLE"]
 
-        st.write(f"Displaying **{len(filtered_map_events)}** event markers on map.")
+        st.write(f"Displaying **{len(filtered_map_events)}** event markers on map ({data_scope}).")
 
     with map_col1:
         urban_map = create_urban_map(
@@ -500,30 +622,46 @@ with tab_gis:
 with tab_table:
     st.subheader("5. Structured Events Table (SQLite Database)")
 
-    f_col1, f_col2, f_col3 = st.columns(3)
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1:
         f_type = st.selectbox("Filter Event Type", ["ALL", "ROAD_DAMAGE", "VEHICLE"])
     with f_col2:
         f_class = st.selectbox("Filter Class", ["ALL", "pothole", "car", "bus", "truck", "motorcycle", "person"])
     with f_col3:
         f_sev = st.selectbox("Filter Severity", ["ALL", "HIGH", "MEDIUM", "LOW", "NONE"])
+    with f_col4:
+        bus_filter_options = ["ALL (Fleet View)", "CURRENT BUS"] + get_available_bus_ids() + [UNKNOWN_BUS_LABEL]
+        default_idx = 1 if data_scope == "CURRENT BUS" else 0
+        f_bus = st.selectbox("Filter Bus ID", bus_filter_options, index=default_idx)
 
     type_arg = None if f_type == "ALL" else f_type
     class_arg = None if f_class == "ALL" else f_class
     sev_arg = None if f_sev == "ALL" else f_sev
 
+    if f_bus == "ALL (Fleet View)":
+        bus_arg = None
+    elif f_bus == "CURRENT BUS":
+        bus_arg = current_bus_id
+    elif f_bus == UNKNOWN_BUS_LABEL:
+        bus_arg = "UNKNOWN"
+    else:
+        bus_arg = f_bus
+
     events_list = db_manager.filter_events(
         event_type=type_arg,
         class_name=class_arg,
         severity=sev_arg,
+        bus_id=bus_arg,
         limit=1000
     )
 
     if events_list:
         records = []
         for e in events_list:
+            bus_tag = e.bus_id if e.bus_id else UNKNOWN_BUS_LABEL
             records.append({
                 "Event ID": e.event_id,
+                "Bus ID": bus_tag,
                 "Type": e.event_type,
                 "Class": e.class_name,
                 "Confidence": f"{e.confidence * 100:.1f}%",
@@ -624,6 +762,8 @@ with tab_export:
     st.markdown("---")
     st.markdown("#### 📂 Storage System Information")
     st.write(f"• **Database Path**: `{db_manager.db_path}`")
+    st.write(f"• **Active Bus**: `{current_bus_id}` ({format_bus_display(current_bus_id)})")
+    st.write(f"• **Data Selection Scope**: `{data_scope}`")
     st.write(f"• **Sample Data Directory**: `{settings.SAMPLE_DATA_DIR}`")
     st.write(f"• **Events Data Directory**: `{settings.EVENTS_DATA_DIR}`")
     st.write(f"• **Models Directory**: `{settings.MODELS_DIR}`")
@@ -633,4 +773,4 @@ with tab_export:
 # Footer
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.caption("Smart India Hackathon 2026 (SIH26124) | Urban Transit Intelligence & Road Asset Management Platform | Checkpoint 6 Complete")
+st.caption("Smart India Hackathon 2026 (SIH26124) | Urban Transit Intelligence & Road Asset Management Platform | Fleet Authentication Active")

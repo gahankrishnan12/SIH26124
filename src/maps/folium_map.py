@@ -138,6 +138,8 @@ def create_event_popup_html(event: Union[UrbanEvent, Dict[str, Any]]) -> str:
         ts = str(event.get("timestamp", "N/A"))
         det_mode = str(event.get("detection_mode", "REAL_AI"))
         gps_mode = str(event.get("gps_mode", "SIMULATED"))
+        raw_bus_id = event.get("bus_id")
+        bus_label = str(raw_bus_id) if raw_bus_id else "UNKNOWN / LEGACY SOURCE"
     else:
         evt_id = event.event_id
         evt_type = event.event_type.upper()
@@ -149,6 +151,7 @@ def create_event_popup_html(event: Union[UrbanEvent, Dict[str, Any]]) -> str:
         ts = event.timestamp
         det_mode = event.detection_mode
         gps_mode = event.gps_mode
+        bus_label = str(event.bus_id) if event.bus_id else "UNKNOWN / LEGACY SOURCE"
 
     # Severity badge styling
     sev_bg = "#6c757d"
@@ -197,6 +200,10 @@ def create_event_popup_html(event: Union[UrbanEvent, Dict[str, Any]]) -> str:
                     <td style="padding: 2px 0; text-align: right; font-weight: bold; color: #0d6efd;">{conf_pct}</td>
                 </tr>
                 <tr>
+                    <td style="padding: 2px 0; color: #666;"><strong>Bus Identity:</strong></td>
+                    <td style="padding: 2px 0; text-align: right;"><code style="background: #e9ecef; padding: 1px 4px; border-radius: 3px; font-size: 10px;">{bus_label}</code></td>
+                </tr>
+                <tr>
                     <td style="padding: 2px 0; color: #666;"><strong>Coordinates:</strong></td>
                     <td style="padding: 2px 0; text-align: right; font-family: monospace; font-size: 10px;">{lat:.6f}, {lon:.6f}</td>
                 </tr>
@@ -220,6 +227,7 @@ def create_event_popup_html(event: Union[UrbanEvent, Dict[str, Any]]) -> str:
     </div>
     """
     return html.strip()
+
 
 
 def create_event_tooltip(event: Union[UrbanEvent, Dict[str, Any]]) -> str:

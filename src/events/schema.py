@@ -26,6 +26,7 @@ class UrbanEvent:
     gps_mode: str = "SIMULATED"     # Explicitly "SIMULATED" for this MVP
     frame_index: int = 0
     bbox: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0]) # [x1, y1, x2, y2]
+    bus_id: Optional[str] = None    # Authenticated Bus ID (e.g. "BUS-001") or None for legacy/unknown
 
     @classmethod
     def create(
@@ -42,7 +43,8 @@ class UrbanEvent:
         source_id: str = "BUS_DEMO_01",
         detection_mode: str = "REAL_AI",
         gps_mode: str = "SIMULATED",
-        event_id: Optional[str] = None
+        event_id: Optional[str] = None,
+        bus_id: Optional[str] = None
     ) -> "UrbanEvent":
         """
         Factory method to create a properly formatted UrbanEvent with auto-generated ID and timestamp.
@@ -69,7 +71,8 @@ class UrbanEvent:
             detection_mode=detection_mode,
             gps_mode=gps_mode,
             frame_index=int(frame_index),
-            bbox=[round(float(x), 2) for x in bbox]
+            bbox=[round(float(x), 2) for x in bbox],
+            bus_id=str(bus_id) if bus_id is not None else None
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -89,6 +92,9 @@ class UrbanEvent:
         else:
             bbox_list = list(bbox_raw)
 
+        raw_bus_id = data.get("bus_id")
+        bus_id = str(raw_bus_id) if (raw_bus_id is not None and str(raw_bus_id).strip() != "") else None
+
         return cls(
             event_id=str(data["event_id"]),
             event_type=str(data.get("event_type", "UNKNOWN")).upper(),
@@ -102,5 +108,6 @@ class UrbanEvent:
             detection_mode=str(data.get("detection_mode", "REAL_AI")),
             gps_mode=str(data.get("gps_mode", "SIMULATED")),
             frame_index=int(data.get("frame_index", 0)),
-            bbox=bbox_list
+            bbox=bbox_list,
+            bus_id=bus_id
         )
