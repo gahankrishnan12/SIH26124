@@ -1,18 +1,30 @@
 """
 SIH26124: AI-Powered Mobile Urban Intelligence Platform
-Streamlit Smart-City Decision Support Dashboard — Fleet Authentication & Bus Identity Integration
+Smart City Fleet Operations & Urban Intelligence Command Center
 """
 import time
 import tempfile
 import json
 from pathlib import Path
+from typing import List, Dict, Any, Optional
+
 import streamlit as st
 import cv2
 import pandas as pd
 from streamlit_folium import st_folium
 
+from config import settings
+from config.buses import (
+    get_available_bus_ids,
+    get_available_buses,
+    get_bus_info,
+    format_bus_display,
+    authenticate_bus,
+    UNKNOWN_BUS_LABEL
+)
 from src.detection.vehicle_detector import VehicleDetector
 from src.detection.road_damage_detector import RoadDamageDetector
+from src.events.schema import UrbanEvent
 from src.events.geo_tagger import GeoTagger
 from src.events.generator import EventGenerator
 from src.storage.db_manager import DatabaseManager
@@ -27,57 +39,254 @@ from src.analytics.road_health import (
     RoadHealthAnalyzer,
     PROTOTYPE_DISCLAIMER
 )
-from src.maps.map_generator import create_urban_map
-from config import settings
-from config.buses import (
-    get_available_bus_ids,
-    get_available_buses,
-    get_bus_info,
-    format_bus_display,
-    authenticate_bus,
-    UNKNOWN_BUS_LABEL
-)
 
 # -----------------------------------------------------------------------------
-# 1. Page Configuration & Theme
+# 1. Page Configuration & Professional Operations Theme
 # -----------------------------------------------------------------------------
-# Custom Styling for Clean Professional Look
+st.set_page_config(
+    page_title="SIH26124 Fleet Intelligence",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f8fafc;
-        border-radius: 8px;
-        padding: 14px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 10px;
+    /* Global Layout */
+    .main .block-container {
+        padding-top: 1.25rem;
+        padding-bottom: 2rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
     }
-    .disclaimer-banner {
-        background-color: #eff6ff;
-        border-left: 4px solid #3b82f6;
+
+    /* Command Center Top Header */
+    .command-header {
+        background-color: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 18px 22px;
+        color: #f8fafc;
+        margin-bottom: 16px;
+    }
+    .command-title {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+        color: #ffffff;
+        margin: 0;
+    }
+    .command-subtitle {
+        font-size: 12px;
+        color: #94a3b8;
+        margin: 2px 0 0 0;
+    }
+
+    /* Professional Status Chips & Badges */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .badge-active {
+        background-color: #064e3b;
+        color: #6ee7b7;
+        border: 1px solid #059669;
+    }
+    .badge-scope-bus {
+        background-color: #1e3a8a;
+        color: #93c5fd;
+        border: 1px solid #2563eb;
+    }
+    .badge-scope-fleet {
+        background-color: #78350f;
+        color: #fcd34d;
+        border: 1px solid #d97706;
+    }
+    .badge-registered {
+        background-color: #1e293b;
+        color: #94a3b8;
+        border: 1px solid #334155;
+    }
+
+    /* Status Dot */
+    .status-dot-active {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        background-color: #22c55e;
+        border-radius: 50%;
+    }
+    .status-dot-muted {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        background-color: #64748b;
+        border-radius: 50%;
+    }
+
+    /* Metric & KPI Cards */
+    .kpi-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+    .kpi-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-bottom: 4px;
+    }
+    .kpi-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.2;
+    }
+    .kpi-sub {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-top: 4px;
+    }
+
+    /* Fleet Bus Grid Cards */
+    .bus-grid-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        height: 100%;
+    }
+    .bus-grid-card-active {
+        background-color: #f8fafc;
+        border: 2px solid #0f172a;
+    }
+    .bus-grid-title {
+        font-size: 13.5px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 2px;
+    }
+    .bus-grid-route {
+        font-size: 11px;
+        color: #475569;
+        margin-bottom: 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .bus-grid-stat {
+        font-size: 11px;
+        color: #334155;
+        display: flex;
+        justify-content: space-between;
+        padding: 2px 0;
+        border-top: 1px solid #f1f5f9;
+    }
+
+    /* Architecture Flow Banner */
+    .flow-banner {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-bottom: 14px;
+        font-size: 11px;
+        color: #334155;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+    }
+    .flow-step {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 7px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        font-weight: 600;
+        color: #0f172a;
+    }
+    .flow-arrow {
+        color: #94a3b8;
+        font-weight: bold;
+    }
+
+    /* Information & Disclaimer Banners */
+    .info-banner {
+        background-color: #f0f9ff;
+        border-left: 3px solid #0284c7;
         padding: 10px 14px;
         border-radius: 4px;
-        margin-bottom: 14px;
-        font-size: 13px;
-        color: #1e3a8a;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: #0369a1;
+        line-height: 1.45;
     }
     .warning-banner {
         background-color: #fffbeb;
-        border-left: 4px solid #f59e0b;
+        border-left: 3px solid #d97706;
         padding: 10px 14px;
         border-radius: 4px;
-        margin-bottom: 14px;
-        font-size: 13px;
-        color: #78350f;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: #92400e;
+        line-height: 1.45;
     }
-    .auth-container {
-        max-width: 500px;
-        margin: 0 auto;
-        padding: 24px;
-        background-color: #ffffff;
+    .alert-banner {
+        background-color: #fef2f2;
+        border-left: 3px solid #dc2626;
+        padding: 10px 14px;
+        border-radius: 4px;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: #991b1b;
+        line-height: 1.45;
+    }
+
+    /* Authentication Box */
+    .auth-panel {
+        max-width: 440px;
+        margin: 40px auto 20px auto;
+        background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border-radius: 8px;
+        padding: 28px 30px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     }
+    .auth-header {
+        text-align: center;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    /* Priority Pill Tags */
+    .prio-pill {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 3px;
+        font-size: 10.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .prio-critical { background-color: #fee2e2; color: #b91c1c; border: 1px solid #f87171; }
+    .prio-high { background-color: #ffedd5; color: #c2410c; border: 1px solid #fb923c; }
+    .prio-medium { background-color: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
+    .prio-low { background-color: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
+    .prio-normal { background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -98,7 +307,7 @@ vehicle_detector, road_damage_detector, db_manager, geo_tagger, road_health_anal
 
 
 # -----------------------------------------------------------------------------
-# 3. Session State & Prototype Fleet Authentication Screen
+# 3. Session State & Authentication Control
 # -----------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
@@ -108,31 +317,49 @@ if "data_scope" not in st.session_state:
     st.session_state["data_scope"] = "CURRENT BUS"
 
 
-# Render Login Screen if not authenticated
+# =============================================================================
+# AUTHENTICATION SCREEN (ZERO-EMOJI PROFESSIONAL DESIGN)
+# =============================================================================
 if not st.session_state["authenticated"]:
-    st.markdown("<h1 style='text-align: center;'>SIH26124 Fleet Intelligence</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #64748b;'>AI-Powered Mobile Urban Sensing Platform</p>", unsafe_allow_html=True)
+    _, auth_center_col, _ = st.columns([1, 1.8, 1])
 
-    st.markdown("""
-    <div class="warning-banner" style="text-align: center;">
-        <b>⚠️ Prototype Fleet Authentication</b><br/>
-        This is a hackathon prototype, NOT production authentication.
-    </div>
-    """, unsafe_allow_html=True)
+    with auth_center_col:
+        st.markdown("""
+        <div class="auth-panel">
+            <div class="auth-header">
+                <div style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px;">
+                    SIH26124 FLEET INTELLIGENCE
+                </div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 3px;">
+                    AI-Powered Mobile Urban Intelligence Platform
+                </div>
+            </div>
+            <div style="font-size: 12px; font-weight: 700; color: #334155; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px;">
+                BUS AUTHENTICATION
+            </div>
+        """, unsafe_allow_html=True)
 
-    auth_col1, auth_col2, auth_col3 = st.columns([1, 2, 1])
-    with auth_col2:
-        st.markdown("### 🚌 BUS AUTHENTICATION")
         bus_ids = get_available_bus_ids()
 
-        with st.form("prototype_bus_login_form"):
+        with st.form("fleet_bus_login_form", clear_on_submit=False):
+            st.markdown("<label style='font-size: 11.5px; font-weight: 600; color: #475569;'>Bus ID</label>", unsafe_allow_html=True)
             selected_bus_id = st.selectbox(
-                "Bus ID:",
+                "Bus ID",
                 options=bus_ids,
-                format_func=lambda b_id: format_bus_display(b_id)
+                format_func=lambda b_id: format_bus_display(b_id),
+                label_visibility="collapsed"
             )
-            entered_pin = st.text_input("Access PIN:", type="password", placeholder="Enter prototype PIN")
-            login_btn = st.form_submit_button("LOGIN", type="primary", use_container_width=True)
+
+            st.markdown("<label style='font-size: 11.5px; font-weight: 600; color: #475569; margin-top: 8px;'>Access PIN</label>", unsafe_allow_html=True)
+            entered_pin = st.text_input(
+                "Access PIN",
+                type="password",
+                placeholder="Enter access PIN",
+                label_visibility="collapsed"
+            )
+
+            st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+            login_btn = st.form_submit_button("LOGIN TO FLEET", type="primary", use_container_width=True)
 
             if login_btn:
                 if authenticate_bus(selected_bus_id, entered_pin):
@@ -142,143 +369,351 @@ if not st.session_state["authenticated"]:
                     st.success(f"Authenticated as {selected_bus_id} successfully.")
                     st.rerun()
                 else:
-                    st.error("Authentication failed: Invalid Bus ID or Access PIN. Please try again.")
-
+                    st.error("Authentication failed: Invalid Bus ID or Access PIN. Please verify credentials.")
     st.stop()
 
 
 # -----------------------------------------------------------------------------
-# 4. Sidebar Controls & Active Bus Information
+# 4. Authenticated Context & Data Scope Resolution
 # -----------------------------------------------------------------------------
 current_bus_id = st.session_state["current_bus_id"]
 current_bus_info = get_bus_info(current_bus_id)
+data_scope = st.session_state.get("data_scope", "CURRENT BUS")
 
+# Fetch scope-resolved events from DatabaseManager
+if data_scope == "CURRENT BUS":
+    scoped_events: List[UrbanEvent] = db_manager.filter_events(bus_id=current_bus_id, limit=100000)
+    scoped_damages: List[UrbanEvent] = db_manager.filter_events(event_type="ROAD_DAMAGE", bus_id=current_bus_id, limit=100000)
+else:
+    scoped_events = db_manager.get_events(limit=100000)
+    scoped_damages = db_manager.filter_events(event_type="ROAD_DAMAGE", limit=100000)
+
+db_stats = db_manager.get_event_statistics()
+
+
+# -----------------------------------------------------------------------------
+# 5. Sidebar Navigation & Fleet Operational Controls
+# -----------------------------------------------------------------------------
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/bus.png", width=64)
-    st.title("SIH26124 Fleet Hub")
-    st.caption("AI-Powered Urban Transit Sensing")
-    st.markdown("---")
+    st.markdown("""
+    <div style="margin-bottom: 12px;">
+        <div style="font-size: 15px; font-weight: 700; color: #0f172a; line-height: 1.2;">SIH26124</div>
+        <div style="font-size: 11px; color: #64748b;">Fleet Intelligence Operations</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Active Bus Identity Card
-    st.subheader("🚌 Active Bus Identity")
+    # Fleet Context Panel
+    st.markdown("<div style='font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.4px;'>FLEET CONTEXT</div>", unsafe_allow_html=True)
     if current_bus_info:
         st.markdown(f"""
-        <div class="metric-card">
-            <b>{current_bus_info['bus_id']}</b> — {current_bus_info['display_name']}<br/>
-            <span style="font-size: 11px; color: #475569;">🛣️ <b>Route:</b> {current_bus_info['route']}</span><br/>
-            <span style="font-size: 11px; color: #16a34a; font-weight: bold;">🟢 Authenticated / Active</span>
+        <div class="kpi-card" style="background-color: #f8fafc; padding: 10px 12px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 13px; font-weight: 700; color: #0f172a;">{current_bus_info['bus_id']}</span>
+                <span class="status-badge badge-active"><span class="status-dot-active"></span> ACTIVE</span>
+            </div>
+            <div style="font-size: 11px; color: #475569; margin-top: 2px;">{current_bus_info['display_name']}</div>
+            <div style="font-size: 10.5px; color: #64748b; margin-top: 2px;">Route: {current_bus_info['route']}</div>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.write(f"Bus ID: `{current_bus_id}`")
+        st.write(f"Current Bus: `{current_bus_id}`")
 
-    if st.button("🚪 Logout", use_container_width=True):
+    # Data Selection Scope Switcher
+    st.markdown("<div style='font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-top: 8px; margin-bottom: 4px;'>DATA SCOPE</div>", unsafe_allow_html=True)
+    scope_option = st.radio(
+        "Data Scope",
+        options=["CURRENT BUS", "FLEET VIEW"],
+        index=0 if data_scope == "CURRENT BUS" else 1,
+        help="CURRENT BUS: Limits analytics to the authenticated vehicle. FLEET VIEW: Aggregates records across the entire fleet.",
+        label_visibility="collapsed"
+    )
+    if scope_option != st.session_state["data_scope"]:
+        st.session_state["data_scope"] = scope_option
+        st.rerun()
+
+    if st.button("Logout Session", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["current_bus_id"] = None
         st.session_state["data_scope"] = "CURRENT BUS"
         st.rerun()
 
     st.markdown("---")
-    st.subheader("📡 Data Scope Concept")
-    scope_option = st.radio(
-        "Select Data Selection Scope",
-        ["CURRENT BUS", "FLEET VIEW"],
-        index=0 if st.session_state.get("data_scope") == "CURRENT BUS" else 1,
-        help="CURRENT BUS: Shows events captured by this authenticated vehicle. FLEET VIEW: Aggregates events across all vehicles in the fleet."
-    )
-    st.session_state["data_scope"] = scope_option
 
-    st.markdown("---")
-    st.subheader("⚙️ System Status")
-    st.write(f"🟢 **Vehicle AI**: `{vehicle_detector.model_name}`")
+    # System Status
+    st.markdown("<div style='font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.4px;'>SYSTEM STATUS</div>", unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style="font-size: 11.5px; color: #334155; line-height: 1.8;">
+        <div style="display: flex; justify-content: space-between;">
+            <span>Vehicle AI:</span> <span style="font-weight: 600; color: #16a34a;">ACTIVE ({vehicle_detector.model_name})</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+            <span>Damage AI:</span> <span style="font-weight: 600; color: #16a34a;">{road_damage_detector.detection_mode}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+            <span>GPS:</span> <span style="font-weight: 600; color: #0284c7;">SIMULATED</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+            <span>SQLite:</span> <span style="font-weight: 600; color: #0f172a;">CONNECTED ({db_stats['total_events']} events)</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Mode toggle for Road Damage
-    simulate_toggle = st.toggle("Force Demo AI Mode", value=False, help="Forces heuristic road damage simulation mode for testing.")
+    simulate_toggle = st.toggle("Force Demo Damage AI", value=False, help="Forces heuristic road damage simulation mode for testing.")
     road_damage_detector.force_demo_mode = simulate_toggle
     road_damage_detector.detection_mode = "DEMO_SIMULATION" if simulate_toggle else "REAL_AI"
 
-    if road_damage_detector.detection_mode == "REAL_AI":
-        st.write(f"🟢 **Damage AI**: `REAL_AI` ({road_damage_detector.model_name})")
-    else:
-        st.write("🟠 **Damage AI**: `DEMO_SIMULATION` (Simulation Mode)")
-
-    st.write("📍 **GPS Mode**: `SIMULATED GPS`")
-
-    db_stats = db_manager.get_event_statistics()
-    st.write(f"💾 **SQLite Events**: `{db_stats['total_events']}` records")
     st.markdown("---")
 
-    st.subheader("🎯 Detection Thresholds")
-    veh_conf = st.slider("Vehicle Confidence", 0.10, 0.90, 0.35, 0.05)
-    vehicle_detector.conf_threshold = veh_conf
-    dam_conf = st.slider("Damage Confidence", 0.10, 0.90, 0.30, 0.05)
-    road_damage_detector.conf_threshold = dam_conf
+    # Technical System Controls Expander
+    with st.expander("System Controls & Confidence", expanded=False):
+        st.markdown("**Inference Confidence Thresholds**")
+        veh_conf = st.slider("Vehicle AI Confidence", 0.10, 0.90, float(vehicle_detector.conf_threshold), 0.05)
+        vehicle_detector.conf_threshold = veh_conf
 
-    st.markdown("---")
-    st.subheader("🛠️ Database Tools")
-    if st.button("🗑️ Clear Database Events", use_container_width=True):
-        db_manager.clear_events()
-        st.success("Database cleared successfully.")
-        st.rerun()
+        dam_conf = st.slider("Damage AI Confidence", 0.10, 0.90, float(road_damage_detector.conf_threshold), 0.05)
+        road_damage_detector.conf_threshold = dam_conf
+
+        st.markdown("---")
+        st.markdown("**Database Clearance**")
+        st.caption("Destructive operation. Requires explicit confirmation.")
+        confirm_clear = st.checkbox("I understand this removes stored event records", value=False)
+
+        if st.button("Clear Database Records", disabled=not confirm_clear, use_container_width=True):
+            db_manager.clear_events()
+            st.success("Database records cleared successfully.")
+            st.rerun()
 
 
 # -----------------------------------------------------------------------------
-# 5. Header & Top Transparency Disclosure
+# 6. Application Shell Header
 # -----------------------------------------------------------------------------
-st.title("🚌 AI-Powered Mobile Urban Intelligence Platform")
-st.markdown("**Smart-City Decision Support Dashboard** — Smart India Hackathon (SIH26124)")
+route_label = current_bus_info['route'] if current_bus_info else "Simulated Route-7B Corridor"
+scope_badge = f'<span class="status-badge badge-scope-bus">SCOPE: CURRENT BUS ({current_bus_id})</span>' if data_scope == "CURRENT BUS" else '<span class="status-badge badge-scope-fleet">SCOPE: FLEET VIEW (ALL BUSES)</span>'
 
-# Prominent Transparency & Active Scope Indicators
-data_scope = st.session_state["data_scope"]
-b1, b2, b3, b4 = st.columns([1.2, 1.2, 1.1, 1.1])
-
-with b1:
-    st.info(f"🚌 **Active Bus**: `{current_bus_id}`")
-
-with b2:
-    if data_scope == "CURRENT BUS":
-        st.success(f"🎯 **Scope**: `CURRENT BUS ({current_bus_id})`")
-    else:
-        st.warning("🌐 **Scope**: `FLEET VIEW (All Buses)`")
-
-with b3:
-    if road_damage_detector.detection_mode == "REAL_AI":
-        st.success(f"🟢 **Damage AI**: `REAL_AI`")
-    else:
-        st.warning("🟠 **Damage AI**: `DEMO_SIMULATION`")
-
-with b4:
-    st.info("📍 **GPS**: `SIMULATED GPS`")
-
-st.markdown("""
-<div class="disclaimer-banner">
-    <b>ℹ️ Data Transparency & Methodology Notice:</b><br/>
-    • <b>Bus Identity:</b> Events generated by this session are tagged with the active authenticated bus identity.<br/>
-    • <b>GPS Telemetry:</b> Coordinates are interpolated along a predefined simulated transit corridor (Route-7B, New Delhi).<br/>
-    • <b>Traffic Analytics:</b> Represents vehicle detection events captured by mobile transit edge cameras and deduplicated via spatial-temporal tracking. Observational proxy data only; not induction-loop calibrated.<br/>
-    • <b>Traffic Density:</b> Heuristic classification based on observed detection rates (events/min).
+st.markdown(f"""
+<div class="command-header">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+            <h1 class="command-title">SIH26124 FLEET INTELLIGENCE</h1>
+            <div class="command-subtitle">AI-Powered Mobile Urban Intelligence Platform</div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span class="status-badge badge-active"><span class="status-dot-active"></span> {current_bus_id} &nbsp;|&nbsp; ACTIVE SESSION</span>
+            {scope_badge}
+        </div>
+    </div>
+    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #1e293b; font-size: 11.5px; color: #94a3b8; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div>Route: {route_label}</div>
+        <div>Telemetry: SIMULATED GPS (Route-7B) &nbsp;|&nbsp; AI Perception: YOLOv8 Dual Detection</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
-# 6. Tabbed Interface for Clean Organization
+# 7. Navigation Structure (Clean Professional Text Tabs)
 # -----------------------------------------------------------------------------
-tab_video, tab_traffic, tab_damage, tab_gis, tab_table, tab_export = st.tabs([
-    "📹 Video Ingestion & Processing",
-    "📊 Traffic Analytics",
-    "⚠️ Road Damage Analytics",
-    "🗺️ GIS Spatial Map",
-    "📋 Event Explorer",
-    "📥 Data Export & Logs"
+tab_overview, tab_video, tab_traffic, tab_damage, tab_gis, tab_table, tab_export = st.tabs([
+    "Overview",
+    "Video & AI",
+    "Traffic Analytics",
+    "Road Health",
+    "GIS Map",
+    "Event Explorer",
+    "Reports"
 ])
 
 
 # =============================================================================
-# TAB 1: VIDEO INGESTION & PROCESSING
+# TAB 1: OVERVIEW
+# =============================================================================
+with tab_overview:
+    # 1. Operational Flow Banner
+    st.markdown("""
+    <div class="flow-banner">
+        <span class="flow-step">BUS FLEET</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">MOBILE SENSING</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">AI PERCEPTION</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">STRUCTURED EVENTS</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">GIS TELEMETRY</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">TRAFFIC & ROAD HEALTH</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-step">PRIORITY ACTION</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 2. Executive KPI Summary Cards
+    traffic_metrics_scoped = compute_traffic_metrics(events=scoped_events)
+    total_scoped_events = len(scoped_events)
+    total_scoped_damages = len(scoped_damages)
+    total_scoped_vehicles = traffic_metrics_scoped["vehicle_counts"]["total_vehicle_count"]
+    high_critical_count = sum(1 for e in scoped_damages if e.severity.lower() == "high")
+
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+
+    with kpi_col1:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">TOTAL EVENTS</div>
+            <div class="kpi-value">{total_scoped_events}</div>
+            <div class="kpi-sub">{data_scope} records stored in SQLite</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with kpi_col2:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">ROAD DAMAGE</div>
+            <div class="kpi-value" style="color: #c2410c;">{total_scoped_damages}</div>
+            <div class="kpi-sub">Potholes & surface distress detected</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with kpi_col3:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">VALID VEHICLES</div>
+            <div class="kpi-value" style="color: #1d4ed8;">{total_scoped_vehicles}</div>
+            <div class="kpi-sub">Cars, buses, trucks, motorcycles</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with kpi_col4:
+        sev_color = "#b91c1c" if high_critical_count > 0 else "#15803d"
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">HIGH / CRITICAL ISSUES</div>
+            <div class="kpi-value" style="color: {sev_color};">{high_critical_count}</div>
+            <div class="kpi-sub">Urgent maintenance priority alerts</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # 3. Fleet Status Grid (All 5 Configured Buses)
+    st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.4px;'>FLEET STATUS</div>", unsafe_allow_html=True)
+    st.caption("Active monitoring units across urban transit corridors. The active session unit is highlighted.")
+
+    fleet_cols = st.columns(5)
+    all_buses = get_available_buses()
+    by_bus_stats = db_stats.get("by_bus_id", {})
+
+    for idx, bus in enumerate(all_buses):
+        b_id = bus["bus_id"]
+        is_active = (b_id == current_bus_id)
+        bus_events_count = by_bus_stats.get(b_id, 0)
+        bus_dam_count = sum(1 for e in db_manager.filter_events(event_type="ROAD_DAMAGE", bus_id=b_id, limit=10000))
+
+        card_class = "bus-grid-card bus-grid-card-active" if is_active else "bus-grid-card"
+        badge_html = '<span class="status-badge badge-active"><span class="status-dot-active"></span> ACTIVE SESSION</span>' if is_active else '<span class="status-badge badge-registered"><span class="status-dot-muted"></span> REGISTERED</span>'
+
+        with fleet_cols[idx]:
+            st.markdown(f"""
+            <div class="{card_class}">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <div class="bus-grid-title">{b_id}</div>
+                    {badge_html}
+                </div>
+                <div class="bus-grid-route" title="{bus['route']}">{bus['route']}</div>
+                <div class="bus-grid-stat">
+                    <span>Events:</span>
+                    <b>{bus_events_count}</b>
+                </div>
+                <div class="bus-grid-stat">
+                    <span>Road Damage:</span>
+                    <b>{bus_dam_count}</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # 4. Intelligence Summary Split: Road Health vs Traffic
+    ov_c1, ov_c2 = st.columns(2)
+
+    with ov_c1:
+        st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.4px;'>ROAD INFRASTRUCTURE CONDITION</div>", unsafe_allow_html=True)
+        if not scoped_events:
+            st.info(f"NO EVENTS AVAILABLE: No event records are currently recorded for {data_scope}.")
+        else:
+            valid_health_events = [
+                e for e in scoped_events
+                if e.event_type == "ROAD_DAMAGE" or (e.event_type == "VEHICLE" and e.class_name.lower() in VALID_VEHICLE_CLASSES)
+            ]
+            health_report = road_health_analyzer.analyze_events(valid_health_events)
+
+            rh_k1, rh_k2, rh_k3 = st.columns(3)
+            with rh_k1:
+                st.metric("Network Health", f"{health_report.overall_network_health:.1f} / 100")
+            with rh_k2:
+                st.metric("Critical Segments", health_report.critical_segments_count)
+            with rh_k3:
+                st.metric("High Priority Segments", health_report.high_priority_segments_count)
+
+            urgent_segs = [s for s in health_report.segments if s.maintenance_priority in ("CRITICAL", "HIGH")]
+            if urgent_segs:
+                st.markdown("**Top Maintenance Alerts:**")
+                for s in urgent_segs[:3]:
+                    st.markdown(f"- **{s.segment_name}** — Priority: `{s.maintenance_priority}` (Score: `{s.priority_score:.1f}`, Damages: `{s.damage_count}`)")
+            else:
+                st.success("No critical road segment degradation identified in current scope.")
+
+    with ov_c2:
+        st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.4px;'>MOBILITY & TRAFFIC FLOW</div>", unsafe_allow_html=True)
+        t_density = traffic_metrics_scoped["traffic_density_classification"]
+        t_counts = traffic_metrics_scoped["vehicle_counts"]
+
+        tr_k1, tr_k2, tr_k3 = st.columns(3)
+        with tr_k1:
+            st.metric("Traffic Density", t_density["density_level"])
+        with tr_k2:
+            st.metric("Observed Rate", f"{t_density['observed_rate_per_minute']} ev/min")
+        with tr_k3:
+            dom_class = t_counts["dominant_vehicle_class"] or "None"
+            st.metric("Dominant Class", dom_class.upper())
+
+        if t_counts["by_class"]:
+            df_mini_class = pd.DataFrame([
+                {"Class": k.capitalize(), "Events": v, "Share": f"{t_counts['class_percentage_shares'].get(k, 0):.1f}%"}
+                for k, v in t_counts["by_class"].items()
+            ])
+            st.dataframe(df_mini_class, use_container_width=True, hide_index=True)
+        else:
+            st.caption("NO VALID VEHICLE OBSERVATIONS: No valid vehicle observations are available for the selected scope.")
+
+    st.markdown("---")
+
+    # 5. Recent Events Stream
+    st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.4px;'>RECENT STRUCTURED EVENTS</div>", unsafe_allow_html=True)
+    if scoped_events:
+        recent_records = []
+        for e in scoped_events[:6]:
+            recent_records.append({
+                "Event ID": e.event_id,
+                "Bus ID": e.bus_id if e.bus_id else UNKNOWN_BUS_LABEL,
+                "Type": e.event_type,
+                "Class": e.class_name,
+                "Severity": e.severity.upper(),
+                "Confidence": f"{e.confidence * 100:.1f}%",
+                "Timestamp": e.timestamp
+            })
+        st.dataframe(pd.DataFrame(recent_records), use_container_width=True, hide_index=True)
+    else:
+        st.info("NO EVENTS AVAILABLE: No recent event records available.")
+
+
+# =============================================================================
+# TAB 2: VIDEO & AI INGESTION
 # =============================================================================
 with tab_video:
-    st.subheader("1. Ingest Road Video & Run Dual AI Pipeline")
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>VIDEO INGESTION & AI PROCESSING</div>", unsafe_allow_html=True)
     st.caption(f"Newly processed events will be tagged with active bus ID: **{current_bus_id}**")
 
     col_v1, col_v2 = st.columns([1.5, 1])
@@ -299,12 +734,16 @@ with tab_video:
             p = settings.SAMPLE_DATA_DIR / "real_road_sample.mp4"
             if p.exists():
                 selected_video_path = str(p)
-                st.success(f"Loaded Real Video Feed (`{round(p.stat().st_size / (1024*1024), 2)} MB`)")
+                st.success(f"Loaded Real Video Feed ({round(p.stat().st_size / (1024*1024), 2)} MB)")
+            else:
+                st.error(f"Video file not found: {p}")
         elif input_mode == "Backup Demo Video (backup_road_demo.mp4)":
             p = settings.SAMPLE_DATA_DIR / "backup_road_demo.mp4"
             if p.exists():
                 selected_video_path = str(p)
-                st.info(f"Loaded Backup Video Feed (`{round(p.stat().st_size / 1024, 1)} KB`)")
+                st.info(f"Loaded Backup Video Feed ({round(p.stat().st_size / 1024, 1)} KB)")
+            else:
+                st.error(f"Backup video file not found: {p}")
         else:
             uploaded_file = st.file_uploader("Upload Video File", type=["mp4", "avi", "mov"])
             if uploaded_file is not None:
@@ -323,7 +762,7 @@ with tab_video:
     st.markdown("---")
 
     if selected_video_path is not None:
-        if st.button("🚀 Process Video, Geotag & Store Events", type="primary", use_container_width=True):
+        if st.button("PROCESS VIDEO", type="primary", use_container_width=True):
             if reset_db_on_run:
                 db_manager.clear_events()
 
@@ -335,62 +774,66 @@ with tab_video:
             )
 
             progress_bar = st.progress(0, text="Initializing processing pipeline...")
-            metrics_placeholder = st.empty()
             output_save_path = settings.SAMPLE_DATA_DIR / "annotated_real_road_sample.mp4"
 
             def ui_progress(processed, total, current_fps, current_v, current_d):
                 pct = min(int((processed / max(total, 1)) * 100), 100)
                 progress_bar.progress(
                     pct,
-                    text=f"Frame {processed}/{total} ({pct}%) | Live FPS: {current_fps:.1f} | Veh Detections: {current_v} | Damage Detections: {current_d}"
+                    text=f"Frame {processed}/{total} ({pct}%) | Speed: {current_fps:.1f} FPS | Vehicles: {current_v} | Hazards: {current_d}"
                 )
 
             start_proc_time = time.perf_counter()
-            results = processor.process_video(
-                input_path=selected_video_path,
-                output_path=str(output_save_path),
-                frame_skip=frame_skip,
-                max_frames=max_frames_val,
-                save_to_db=True,
-                bus_id=current_bus_id,
-                progress_callback=ui_progress
-            )
-            progress_bar.progress(100, text="Pipeline Execution Complete!")
+            try:
+                results = processor.process_video(
+                    input_path=selected_video_path,
+                    output_path=str(output_save_path),
+                    frame_skip=frame_skip,
+                    max_frames=max_frames_val,
+                    save_to_db=True,
+                    bus_id=current_bus_id,
+                    progress_callback=ui_progress
+                )
+                progress_bar.progress(100, text="Pipeline Execution Complete")
 
-            st.success(f"✅ Successfully processed {results['processed_frames_count']} frames in {results['total_processing_time_sec']}s ({results['complete_pipeline_fps']} FPS). Generated {results['total_generated_events']} new deduplicated events tagged to bus **{current_bus_id}**.")
+                st.success(
+                    f"Processed {results['processed_frames_count']} frames in {results['total_processing_time_sec']}s "
+                    f"({results['complete_pipeline_fps']} FPS). Generated {results['total_generated_events']} deduplicated events "
+                    f"tagged to bus {current_bus_id}."
+                )
 
-            # Performance Metrics Cards
-            m1, m2, m3, m4 = st.columns(4)
-            with m1:
-                st.metric("Total Frames", results["processed_frames_count"])
-            with m2:
-                st.metric("Pipeline Speed", f"{results['complete_pipeline_fps']} FPS")
-            with m3:
-                st.metric("Model Inference Speed", f"{results['model_inference_fps']} FPS")
-            with m4:
-                st.metric("Deduplicated Events", results["total_generated_events"], delta=f"-{results['total_duplicates_filtered']} dupes")
+                # Performance Metrics Cards
+                m1, m2, m3, m4 = st.columns(4)
+                with m1:
+                    st.metric("Total Frames", results["processed_frames_count"])
+                with m2:
+                    st.metric("Pipeline Speed", f"{results['complete_pipeline_fps']} FPS")
+                with m3:
+                    st.metric("Inference Speed", f"{results['model_inference_fps']} FPS")
+                with m4:
+                    st.metric("Generated Events", results["total_generated_events"], delta=f"-{results['total_duplicates_filtered']} dupes")
 
-            # Video Preview
-            if output_save_path.exists() and output_save_path.stat().st_size > 0:
-                st.markdown("#### 🎬 Annotated Output Video")
-                st.video(str(output_save_path))
-                st.caption(f"Saved annotated file: `{output_save_path}` ({round(output_save_path.stat().st_size / 1024, 1)} KB)")
+                # Video Preview
+                if output_save_path.exists() and output_save_path.stat().st_size > 0:
+                    st.markdown("#### Annotated Output Video")
+                    st.video(str(output_save_path))
+                    st.caption(f"Saved annotated file: `{output_save_path}` ({round(output_save_path.stat().st_size / 1024, 1)} KB)")
+
+            except Exception as e:
+                st.error(f"Video processing error: {e}")
 
 
 # =============================================================================
-# TAB 2: TRAFFIC ANALYTICS (CHECKPOINT 5)
+# TAB 3: TRAFFIC ANALYTICS
 # =============================================================================
 with tab_traffic:
-    st.subheader("2. Traffic Volume & Density Analytics")
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>TRAFFIC ANALYTICS</div>", unsafe_allow_html=True)
     if data_scope == "CURRENT BUS":
-        st.caption(f"📊 Displaying traffic analytics filtered to **Current Bus ({current_bus_id})**")
-        traffic_events = db_manager.filter_events(bus_id=current_bus_id, limit=100000)
+        st.caption(f"Displaying traffic analytics filtered to **Current Bus ({current_bus_id})**")
     else:
-        st.caption("🌐 Displaying aggregate fleet-wide traffic analytics (**Fleet View**)")
-        traffic_events = db_manager.get_events(limit=100000)
+        st.caption("Displaying aggregate fleet-wide traffic analytics (**Fleet View**)")
 
-    # Fetch traffic summary based on active scope
-    traffic_summary = compute_traffic_metrics(events=traffic_events)
+    traffic_summary = compute_traffic_metrics(events=scoped_events)
     veh_counts = traffic_summary["vehicle_counts"]
     temp_dist = traffic_summary["temporal_distribution"]
     density_info = traffic_summary["traffic_density_classification"]
@@ -398,19 +841,19 @@ with tab_traffic:
     # Top KPI Row
     tk1, tk2, tk3, tk4 = st.columns(4)
     with tk1:
-        st.metric("Total Vehicle Events", veh_counts["total_vehicle_count"], help="Valid vehicle classes: car, bus, truck, motorcycle")
+        st.metric("Valid Vehicle Events", veh_counts["total_vehicle_count"], help="Valid vehicle classes: car, bus, truck, motorcycle")
     with tk2:
-        st.metric("Dominant Vehicle Class", (veh_counts["dominant_vehicle_class"] or "None").upper())
+        st.metric("Dominant Class", (veh_counts["dominant_vehicle_class"] or "None").upper())
     with tk3:
-        st.metric("Traffic Density Level", density_info["density_level"], help="Heuristic density classification based on observed rate")
+        st.metric("Traffic Density", density_info["density_level"], help="Heuristic density classification based on observed rate")
     with tk4:
-        st.metric("Observed Traffic Rate", f"{density_info['observed_rate_per_minute']} ev/min")
+        st.metric("Observed Rate", f"{density_info['observed_rate_per_minute']} ev/min")
 
     st.markdown("---")
 
     tc1, tc2 = st.columns(2)
     with tc1:
-        st.markdown("#### 🚗 Vehicle Breakdown by Class")
+        st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;'>VEHICLE CLASS DISTRIBUTION</div>", unsafe_allow_html=True)
         class_counts = veh_counts["by_class"]
         if class_counts:
             df_classes = pd.DataFrame([
@@ -420,13 +863,13 @@ with tab_traffic:
             st.dataframe(df_classes, use_container_width=True, hide_index=True)
             st.bar_chart(pd.DataFrame(list(class_counts.items()), columns=["Class", "Count"]).set_index("Class"))
         else:
-            st.info("No valid vehicle events detected in current dataset.")
+            st.info("NO VALID VEHICLE OBSERVATIONS: No valid vehicle observations are available for this scope.")
 
     with tc2:
-        st.markdown("#### ⏱️ Temporal Event Distribution")
-        st.write(f"• **Observation Duration**: `{temp_dist['duration_seconds']} seconds`")
-        st.write(f"• **Rate per Hour**: `{temp_dist['events_per_hour']} events/hr`")
-        st.write(f"• **Peak Bucket Count**: `{temp_dist['peak_count']} events`")
+        st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;'>TEMPORAL DISTRIBUTION</div>", unsafe_allow_html=True)
+        st.write(f"• Observation Duration: `{temp_dist['duration_seconds']} seconds`")
+        st.write(f"• Rate per Hour: `{temp_dist['events_per_hour']} events/hr`")
+        st.write(f"• Peak Interval Count: `{temp_dist['peak_count']} events`")
 
         if temp_dist["time_buckets"]:
             df_time = pd.DataFrame([
@@ -439,65 +882,27 @@ with tab_traffic:
 
 
 # =============================================================================
-# TAB 3: ROAD DAMAGE ANALYTICS
+# TAB 4: ROAD HEALTH
 # =============================================================================
 with tab_damage:
-    st.subheader("3. Road Surface Condition & Damage Analytics")
-
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>ROAD NETWORK HEALTH & MAINTENANCE PRIORITY</div>", unsafe_allow_html=True)
     if data_scope == "CURRENT BUS":
-        st.caption(f"⚠️ Displaying road damage analytics for **Current Bus ({current_bus_id})**")
-        dam_events_scope = db_manager.filter_events(event_type="ROAD_DAMAGE", bus_id=current_bus_id, limit=100000)
-        all_health_events_scope = db_manager.filter_events(bus_id=current_bus_id, limit=100000)
+        st.caption(f"Displaying road health analytics for **Current Bus ({current_bus_id})**")
     else:
-        st.caption("🌐 Displaying aggregate fleet-wide road damage analytics (**Fleet View**)")
-        dam_events_scope = db_manager.filter_events(event_type="ROAD_DAMAGE", limit=100000)
-        all_health_events_scope = db_manager.get_events(limit=100000)
+        st.caption("Displaying aggregate fleet-wide road health analytics (**Fleet View**)")
 
-    dc1, dc2 = st.columns(2)
-    with dc1:
-        st.markdown("#### 📊 Damage Severity Breakdown")
-        sev_counts = {"low": 0, "medium": 0, "high": 0}
-        for e in dam_events_scope:
-            s = e.severity.lower()
-            if s in sev_counts:
-                sev_counts[s] += 1
-
-        filtered_sev = {k.capitalize(): v for k, v in sev_counts.items() if v > 0}
-        if filtered_sev:
-            st.bar_chart(pd.DataFrame(list(filtered_sev.items()), columns=["Severity", "Count"]).set_index("Severity"))
-        else:
-            st.info("No road damage records currently stored for this scope.")
-
-    with dc2:
-        st.markdown("#### 🤖 Damage AI Detection Modes")
-        mode_counts = {}
-        for e in dam_events_scope:
-            m = e.detection_mode
-            mode_counts[m] = mode_counts.get(m, 0) + 1
-
-        df_modes = pd.DataFrame([{"Detection Mode": k, "Events": v} for k, v in mode_counts.items()])
-        st.dataframe(df_modes, use_container_width=True, hide_index=True)
-        st.caption("ℹ️ `REAL_AI`: Model inference via YOLO road damage weights. `DEMO_SIMULATION`: Heuristic simulation mode.")
-
-    st.markdown("---")
-    st.subheader("🛣️ Road Health & Maintenance Priority")
-
-    # Mandated Prototype Disclaimer
+    # Prototype Disclaimer Banner
     st.markdown(f"""
-    <div class="disclaimer-banner">
-        <b>⚠️ Decision-Support Disclaimer:</b><br/>
-        {PROTOTYPE_DISCLAIMER}
+    <div class="info-banner">
+        <b>Decision-Support Notice:</b> {PROTOTYPE_DISCLAIMER}
     </div>
     """, unsafe_allow_html=True)
 
-    st.caption("📍 **Decision-Support Pipeline Flow**: Road Damage Events ➔ Spatial/Segment Aggregation ➔ Road Health Score (0–100) ➔ Maintenance Priority Tier")
-
-    if not all_health_events_scope:
-        st.info("ℹ️ No road events currently recorded in this scope. Ingest and process a video feed in Tab 1 to compute Road Health & Maintenance Priority rankings.")
+    if not scoped_events:
+        st.info("NO ROAD HEALTH ASSESSMENT: Road health cannot be calculated until road-damage events are available.")
     else:
-        # Filter to ensure valid vehicle events semantics
         valid_health_events = [
-            e for e in all_health_events_scope
+            e for e in scoped_events
             if e.event_type == "ROAD_DAMAGE" or (e.event_type == "VEHICLE" and e.class_name.lower() in VALID_VEHICLE_CLASSES)
         ]
 
@@ -506,32 +911,34 @@ with tab_damage:
         # 1. Overall Network KPI Row
         rh1, rh2, rh3, rh4, rh5 = st.columns(5)
         with rh1:
-            st.metric("Overall Health", f"{health_report.overall_network_health:.1f} / 100")
+            st.metric("Network Health", f"{health_report.overall_network_health:.1f} / 100")
         with rh2:
-            st.metric("Analyzed Segments", health_report.total_segments)
+            st.metric("Segments", health_report.total_segments)
         with rh3:
-            st.metric("Critical Segments", health_report.critical_segments_count)
+            st.metric("Critical", health_report.critical_segments_count)
         with rh4:
-            st.metric("High Priority Segments", health_report.high_priority_segments_count)
+            st.metric("High Priority", health_report.high_priority_segments_count)
         with rh5:
-            st.metric("Total Damage Events", health_report.total_damage_events)
+            st.metric("Total Damage", health_report.total_damage_events)
 
         # 2. Priority Distribution Overview
-        st.markdown("#### 🎯 Maintenance Priority Distribution")
+        st.markdown("<div style='font-size: 12px; font-weight: 700; color: #334155; text-transform: uppercase; margin-top: 10px; margin-bottom: 6px;'>MAINTENANCE PRIORITY DISTRIBUTION</div>", unsafe_allow_html=True)
         dist_c1, dist_c2, dist_c3, dist_c4, dist_c5 = st.columns(5)
         with dist_c1:
-            st.markdown(f"🔴 **CRITICAL**: `{health_report.critical_segments_count}`")
+            st.markdown(f"<span class='prio-pill prio-critical'>CRITICAL: {health_report.critical_segments_count}</span>", unsafe_allow_html=True)
         with dist_c2:
-            st.markdown(f"🟠 **HIGH**: `{health_report.high_priority_segments_count}`")
+            st.markdown(f"<span class='prio-pill prio-high'>HIGH: {health_report.high_priority_segments_count}</span>", unsafe_allow_html=True)
         with dist_c3:
-            st.markdown(f"🟡 **MEDIUM**: `{health_report.medium_priority_segments_count}`")
+            st.markdown(f"<span class='prio-pill prio-medium'>MEDIUM: {health_report.medium_priority_segments_count}</span>", unsafe_allow_html=True)
         with dist_c4:
-            st.markdown(f"🔵 **LOW**: `{health_report.low_priority_segments_count}`")
+            st.markdown(f"<span class='prio-pill prio-low'>LOW: {health_report.low_priority_segments_count}</span>", unsafe_allow_html=True)
         with dist_c5:
-            st.markdown(f"🟢 **NORMAL**: `{health_report.normal_segments_count}`")
+            st.markdown(f"<span class='prio-pill prio-normal'>NORMAL: {health_report.normal_segments_count}</span>", unsafe_allow_html=True)
+
+        st.markdown("---")
 
         # 3. Segment Priority Ranking Table
-        st.markdown("#### 📋 Segment Maintenance Priority Rankings")
+        st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;'>SEGMENT MAINTENANCE PRIORITIES</div>", unsafe_allow_html=True)
 
         filter_col, _ = st.columns([1.5, 2.5])
         with filter_col:
@@ -555,12 +962,11 @@ with tab_damage:
             sev_str = f"L:{sb.get('low', 0)} M:{sb.get('medium', 0)} H:{sb.get('high', 0)}"
 
             segment_records.append({
-                "Segment ID": s.segment_id,
-                "Segment Name": s.segment_name,
-                "Health Score": f"{s.health_score:.1f}",
-                "Priority Tier": s.maintenance_priority,
+                "Segment": s.segment_name,
+                "Health": f"{s.health_score:.1f}",
+                "Priority": s.maintenance_priority,
                 "Priority Score": f"{s.priority_score:.1f}",
-                "Damages": s.damage_count,
+                "Damage": s.damage_count,
                 "Dominant Severity": s.dominant_severity.upper(),
                 "Severity (L/M/H)": sev_str,
                 "Recurrence": s.recurrence_count,
@@ -571,56 +977,52 @@ with tab_damage:
         if segment_records:
             df_segments = pd.DataFrame(segment_records)
             st.dataframe(df_segments, use_container_width=True, hide_index=True)
-            st.caption(f"Displaying {len(segment_records)} segment records.")
+            st.caption(f"Displaying {len(segment_records)} segment records in current view.")
         else:
             st.info(f"No segments match the priority filter '{selected_tier}'.")
 
 
 # =============================================================================
-# TAB 4: GIS SPATIAL MAP (SIMULATED GPS)
+# TAB 5: GIS SPATIAL MAP
 # =============================================================================
 with tab_gis:
-    st.subheader("4. GIS Spatial Map — SIMULATED GPS (Transit Corridor Route-7B)")
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>GIS / SPATIAL INTELLIGENCE</div>", unsafe_allow_html=True)
     st.markdown("""
     <div class="warning-banner">
-        ⚠️ <b>Simulated Geographic Data:</b> Coordinates are interpolated along simulated bus route waypoints in New Delhi for MVP demonstration.
+        <b>Data Status: SIMULATED GPS</b> — Coordinates are interpolated along simulated bus route waypoints in New Delhi for MVP demonstration.
     </div>
     """, unsafe_allow_html=True)
 
-    if data_scope == "CURRENT BUS":
-        all_stored_events = db_manager.filter_events(bus_id=current_bus_id, limit=1000)
-    else:
-        all_stored_events = db_manager.get_events(limit=1000)
-
     map_col1, map_col2 = st.columns([3, 1])
+
     with map_col2:
-        st.markdown("**Map Display Filters**")
+        st.markdown("**Map Display Controls**")
         show_vehicles_on_map = st.checkbox("Overlay Vehicle Detections", value=False)
         sev_filter_map = st.multiselect("Severity Filter", ["high", "medium", "low"], default=["high", "medium", "low"])
 
         filtered_map_events = [
-            e for e in all_stored_events
+            e for e in scoped_events
             if e.event_type.upper() == "ROAD_DAMAGE" and e.severity.lower() in sev_filter_map
         ]
         if show_vehicles_on_map:
-            filtered_map_events += [e for e in all_stored_events if e.event_type.upper() == "VEHICLE"]
+            filtered_map_events += [e for e in scoped_events if e.event_type.upper() == "VEHICLE"]
 
         st.write(f"Displaying **{len(filtered_map_events)}** event markers on map ({data_scope}).")
 
     with map_col1:
-        urban_map = create_urban_map(
+        gis_map = create_event_map(
             events=filtered_map_events,
-            waypoints=geo_tagger.waypoints,
-            include_vehicles=show_vehicles_on_map
+            route_waypoints=geo_tagger.waypoints,
+            show_route=True
         )
-        st_folium(urban_map, width="100%", height=500)
+        render_folium_map(gis_map, height=520, key="fleet_command_gis_map")
 
 
 # =============================================================================
-# TAB 5: EVENT EXPLORER TABLE
+# TAB 6: EVENT EXPLORER
 # =============================================================================
 with tab_table:
-    st.subheader("5. Structured Events Table (SQLite Database)")
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>EVENT EXPLORER</div>", unsafe_allow_html=True)
 
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1:
@@ -676,16 +1078,16 @@ with tab_table:
             })
         df_all_events = pd.DataFrame(records)
         st.dataframe(df_all_events, use_container_width=True, hide_index=True)
-        st.caption(f"Showing {len(records)} events from SQLite database.")
+        st.caption(f"Displaying {len(records)} structured events from SQLite storage.")
     else:
-        st.info("No records match the current filter selection.")
+        st.info("NO EVENTS AVAILABLE: No records match the current filter selection.")
 
 
 # =============================================================================
-# TAB 6: DATA EXPORT & AUDIT LOGS
+# TAB 7: REPORTS & EXPORTS
 # =============================================================================
 with tab_export:
-    st.subheader("6. Export Event Data & Analytics Reports")
+    st.markdown("<div style='font-size: 15px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 0.4px;'>REPORTS & EXPORTS</div>", unsafe_allow_html=True)
 
     exp_c1, exp_c2, exp_c3 = st.columns(3)
 
@@ -693,31 +1095,37 @@ with tab_export:
     json_path = db_manager.export_events_json()
 
     with exp_c1:
-        st.markdown("#### 📄 SQLite Events (CSV)")
-        with open(csv_path, "r", encoding="utf-8") as f:
-            st.download_button(
-                label="📥 Download Events CSV",
-                data=f.read(),
-                file_name="urban_events_sih26124.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+        st.markdown("#### EVENT DATA (CSV)")
+        try:
+            with open(csv_path, "r", encoding="utf-8") as f:
+                st.download_button(
+                    label="Download Events CSV",
+                    data=f.read(),
+                    file_name="urban_events_sih26124.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        except Exception as e:
+            st.error(f"CSV export error: {e}")
 
     with exp_c2:
-        st.markdown("#### 📋 SQLite Events (JSON)")
-        with open(json_path, "r", encoding="utf-8") as f:
-            st.download_button(
-                label="📥 Download Events JSON",
-                data=f.read(),
-                file_name="urban_events_sih26124.json",
-                mime="application/json",
-                use_container_width=True
-            )
+        st.markdown("#### EVENT DATA (JSON)")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                st.download_button(
+                    label="Download Events JSON",
+                    data=f.read(),
+                    file_name="urban_events_sih26124.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+        except Exception as e:
+            st.error(f"JSON export error: {e}")
 
     with exp_c3:
-        st.markdown("#### 📊 Traffic Report (JSON)")
+        st.markdown("#### TRAFFIC REPORT (JSON)")
         st.download_button(
-            label="📥 Download Traffic Analytics JSON",
+            label="Download Traffic Report JSON",
             data=json.dumps(traffic_summary, indent=2),
             file_name="traffic_analytics_report_sih26124.json",
             mime="application/json",
@@ -725,7 +1133,7 @@ with tab_export:
         )
 
     st.markdown("---")
-    st.markdown("#### 🛣️ Road Health & Maintenance Priority Reports")
+    st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;'>ROAD HEALTH & ASSET MANAGEMENT REPORTS</div>", unsafe_allow_html=True)
 
     all_export_events = db_manager.get_events(limit=100000)
     if all_export_events:
@@ -739,38 +1147,45 @@ with tab_export:
 
         rh_c1, rh_c2 = st.columns(2)
         with rh_c1:
-            with open(rh_json_path, "r", encoding="utf-8") as f:
-                st.download_button(
-                    label="📥 Download Road Health Report (JSON)",
-                    data=f.read(),
-                    file_name="road_health_report_sih26124.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
+            try:
+                with open(rh_json_path, "r", encoding="utf-8") as f:
+                    st.download_button(
+                        label="Download Road Health Report (JSON)",
+                        data=f.read(),
+                        file_name="road_health_report_sih26124.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Road Health JSON export error: {e}")
+
         with rh_c2:
-            with open(rh_csv_path, "r", encoding="utf-8") as f:
-                st.download_button(
-                    label="📥 Download Segment Health Matrix (CSV)",
-                    data=f.read(),
-                    file_name="road_health_segments_sih26124.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
+            try:
+                with open(rh_csv_path, "r", encoding="utf-8") as f:
+                    st.download_button(
+                        label="Download Segment Health Matrix (CSV)",
+                        data=f.read(),
+                        file_name="road_health_segments_sih26124.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Road Health CSV export error: {e}")
     else:
-        st.info("ℹ️ Road Health exports unavailable: No event records exist in the SQLite database. Ingest video data in Tab 1 to generate reports.")
+        st.info("NO ROAD HEALTH ASSESSMENT: Road Health exports unavailable. No event records exist in the SQLite database.")
 
     st.markdown("---")
-    st.markdown("#### 📂 Storage System Information")
-    st.write(f"• **Database Path**: `{db_manager.db_path}`")
-    st.write(f"• **Active Bus**: `{current_bus_id}` ({format_bus_display(current_bus_id)})")
-    st.write(f"• **Data Selection Scope**: `{data_scope}`")
-    st.write(f"• **Sample Data Directory**: `{settings.SAMPLE_DATA_DIR}`")
-    st.write(f"• **Events Data Directory**: `{settings.EVENTS_DATA_DIR}`")
-    st.write(f"• **Models Directory**: `{settings.MODELS_DIR}`")
+    st.markdown("<div style='font-size: 13px; font-weight: 700; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;'>STORAGE & METADATA</div>", unsafe_allow_html=True)
+    st.write(f"• Database Path: `{db_manager.db_path}`")
+    st.write(f"• Active Bus: `{current_bus_id}` ({format_bus_display(current_bus_id)})")
+    st.write(f"• Data Scope: `{data_scope}`")
+    st.write(f"• Sample Data Directory: `{settings.SAMPLE_DATA_DIR}`")
+    st.write(f"• Events Data Directory: `{settings.EVENTS_DATA_DIR}`")
+    st.write(f"• Models Directory: `{settings.MODELS_DIR}`")
 
 
 # -----------------------------------------------------------------------------
 # Footer
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.caption("Smart India Hackathon 2026 (SIH26124) | Urban Transit Intelligence & Road Asset Management Platform | Fleet Authentication Active")
+st.caption("Smart India Hackathon 2026 (SIH26124) | Urban Transit Intelligence & Road Asset Management Platform | Operations Command Center")
