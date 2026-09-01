@@ -291,6 +291,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_or_create_browser_preview(source_video_path: Path) -> Path:
+    """
+    Creates a browser-compatible H.264/avc1 preview file with faststart
+    from an OpenCV-generated annotated MP4 video, preserving the original file.
+    """
+    if not source_video_path.exists() or source_video_path.stat().st_size == 0:
+        return source_video_path
+
+    preview_path = source_video_path.parent / f"browser_preview_{source_video_path.name}"
+
+    if preview_path.exists() and preview_path.stat().st_mtime >= source_video_path.stat().st_mtime:
+        return preview_path
+
+    try:
+        import subprocess
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-i", str(source_video_path),
+            "-vcodec", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(preview_path)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if res.returncode == 0 and preview_path.exists() and preview_path.stat().st_size > 0:
+            return preview_path
+    except Exception:
+        pass
+
+    return source_video_path
+
+
 # -----------------------------------------------------------------------------
 # 2. Pipeline Initialization (Cached for CPU Efficiency)
 # -----------------------------------------------------------------------------
@@ -722,6 +757,7 @@ with tab_video:
         input_mode = st.radio(
             "Select Video Feed Source",
             [
+                "Judge Demo Video (judge_demo_1.mp4)",
                 "Real Road Video (real_road_sample.mp4)",
                 "Backup Demo Video (backup_road_demo.mp4)",
                 "Upload Custom Video (.mp4, .avi, .mov)"
@@ -730,7 +766,14 @@ with tab_video:
         )
 
         selected_video_path = None
-        if input_mode == "Real Road Video (real_road_sample.mp4)":
+        if input_mode == "Judge Demo Video (judge_demo_1.mp4)":
+            p = settings.SAMPLE_DATA_DIR / "judge_demo_1.mp4"
+            if p.exists():
+                selected_video_path = str(p)
+                st.success(f"Loaded Judge Demo Video ({round(p.stat().st_size / (1024*1024), 2)} MB)")
+            else:
+                st.error(f"Video file not found: {p}")
+        elif input_mode == "Real Road Video (real_road_sample.mp4)":
             p = settings.SAMPLE_DATA_DIR / "real_road_sample.mp4"
             if p.exists():
                 selected_video_path = str(p)
@@ -762,6 +805,11 @@ with tab_video:
     st.markdown("---")
 
     if selected_video_path is not None:
+        if input_mode == "Judge Demo Video (judge_demo_1.mp4)":
+            output_save_path = settings.SAMPLE_DATA_DIR / "annotated_judge_demo_1.mp4"
+        else:
+            output_save_path = settings.SAMPLE_DATA_DIR / "annotated_real_road_sample.mp4"
+
         if st.button("PROCESS VIDEO", type="primary", use_container_width=True):
             if reset_db_on_run:
                 db_manager.clear_events()
@@ -774,7 +822,6 @@ with tab_video:
             )
 
             progress_bar = st.progress(0, text="Initializing processing pipeline...")
-            output_save_path = settings.SAMPLE_DATA_DIR / "annotated_real_road_sample.mp4"
 
             def ui_progress(processed, total, current_fps, current_v, current_d):
                 pct = min(int((processed / max(total, 1)) * 100), 100)
@@ -813,14 +860,18 @@ with tab_video:
                 with m4:
                     st.metric("Generated Events", results["total_generated_events"], delta=f"-{results['total_duplicates_filtered']} dupes")
 
-                # Video Preview
-                if output_save_path.exists() and output_save_path.stat().st_size > 0:
-                    st.markdown("#### Annotated Output Video")
-                    st.video(str(output_save_path))
-                    st.caption(f"Saved annotated file: `{output_save_path}` ({round(output_save_path.stat().st_size / 1024, 1)} KB)")
-
             except Exception as e:
                 st.error(f"Video processing error: {e}")
+
+        # Video Preview
+        if output_save_path.exists() and output_save_path.stat().st_size > 0:
+            st.markdown("#### Annotated AI Output")
+            preview_file = get_or_create_browser_preview(output_save_path)
+            try:
+                st.video(str(preview_file))
+                st.caption(f"Saved annotated file: `{output_save_path}` ({round(output_save_path.stat().st_size / (1024*1024), 2)} MB) | Browser preview: `{preview_file.name}`")
+            except Exception as vid_err:
+                st.error(f"Error displaying video preview: {vid_err}")
 
 
 # =============================================================================
