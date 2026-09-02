@@ -190,6 +190,13 @@ BUS-003
 BUS-004
 BUS-005
 
+Authentication:
+Password: 
+BUS-001 - 1001
+BUS-002 - 1002
+BUS-003 - 1003
+BUS-004 - 1004
+BUS-005 - 1005
 After authentication, the active bus ID is propagated through the video-processing pipeline.
 
 Bus Authentication
