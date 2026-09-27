@@ -293,38 +293,59 @@ st.markdown("""
 
 def get_or_create_browser_preview(source_video_path: Path) -> Path:
     """
-    Creates a browser-compatible H.264/avc1 preview file with faststart
-    from an OpenCV-generated annotated MP4 video, preserving the original file.
+    Creates a browser-compatible H.264 preview from an OpenCV-generated MP4.
     """
+
     if not source_video_path.exists() or source_video_path.stat().st_size == 0:
         return source_video_path
 
     preview_path = source_video_path.parent / f"browser_preview_{source_video_path.name}"
 
-    if preview_path.exists() and preview_path.stat().st_mtime >= source_video_path.stat().st_mtime:
+    if (
+        preview_path.exists()
+        and preview_path.stat().st_size > 0
+        and preview_path.stat().st_mtime >= source_video_path.stat().st_mtime
+    ):
         return preview_path
 
     try:
         import subprocess
         import imageio_ffmpeg
+
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
         cmd = [
             ffmpeg_exe,
             "-y",
             "-i", str(source_video_path),
-            "-vcodec", "libx264",
+            "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
-            str(preview_path)
+            "-an",
+            str(preview_path),
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if res.returncode == 0 and preview_path.exists() and preview_path.stat().st_size > 0:
+
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        if (
+            res.returncode == 0
+            and preview_path.exists()
+            and preview_path.stat().st_size > 0
+        ):
             return preview_path
-    except Exception:
-        pass
+
+        print("FFmpeg conversion failed:")
+        print(res.stderr[-4000:])
+
+    except Exception as e:
+        print(f"Browser preview conversion failed: {e}")
 
     return source_video_path
-
 
 # -----------------------------------------------------------------------------
 # 2. Pipeline Initialization (Cached for CPU Efficiency)
