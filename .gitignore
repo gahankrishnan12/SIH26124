@@ -9,3 +9,4 @@ venv/
 *.db-journal
 models/*.pt
 !models/.gitkeep
+data/sample/browser_preview_*.mp4
