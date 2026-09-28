@@ -463,7 +463,7 @@ SIH26124/
 ## 16. Installation
 
 Clone the Repository
-git clone https://github.com/meghashree-23/SIH26124.git
+git clone https://github.com/gahankrishnan12/SIH26124.git 
 cd SIH26124
 Create a Virtual Environment
 
